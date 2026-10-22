@@ -1,83 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Profile · Flowzen</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile · Flowzen</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="page">
-  <div class="page-head"><div><h1>My Profile</h1><div class="muted">Your account details, picture and password.</div></div></div>
-  <div class="grid g2">
+  <h1>My Profile</h1>
+  <div class="grid g2" style="margin-top:12px">
     <div class="card">
-      <div class="row" style="margin-bottom:16px"><span id="pic"></span><div><b id="pname"></b><div class="small muted" id="pmeta"></div>
-        <form id="avatarForm" class="row" style="margin-top:8px"><input type="file" name="avatar" accept=".png,.jpg,.jpeg,.gif,.webp" required aria-label="Profile picture"><button class="btn sm">Upload</button></form>
-        <div class="small muted">PNG, JPG, GIF or WEBP, max 2 MB</div></div></div>
-      <form id="profileForm" novalidate>
+      <div class="row" style="margin-bottom:14px"><span id="picture"></span>
+        <form class="row" onsubmit="uploadAvatar(event)"><input type="file" id="avatar" accept=".png,.jpg,.jpeg,.gif,.webp" required><button class="btn sm">Upload picture</button></form></div>
+      <form id="profileForm">
         <div class="error-box hidden"></div>
-        <label><span>Full name *</span><input name="name" required minlength="2" maxlength="80"></label>
-        <label><span>Email</span><input name="email" disabled></label>
-        <label><span>Job title</span><input name="title" maxlength="80"></label>
-        <label><span>Phone</span><input name="phone" maxlength="30"></label>
-        <label><span>Bio</span><textarea name="bio" maxlength="500"></textarea></label>
+        <label><span>Full name</span><input name="name" required minlength="2"></label>
+        <label><span>Email</span><input id="email" disabled></label>
+        <label><span>Job title</span><input name="title"></label>
+        <label><span>Phone</span><input name="phone"></label>
         <button class="btn" type="submit">Save profile</button>
       </form>
     </div>
     <div>
-      <div class="card"><h2>Team</h2><div id="team"></div></div>
+      <div class="card"><h2>My team</h2><div id="team"></div></div>
       <div class="card"><h2>Change password</h2>
-        <form id="pwForm" novalidate><div class="error-box hidden"></div>
-          <label><span>Current password</span><input type="password" name="current" required autocomplete="current-password"></label>
-          <label><span>New password (min 8 characters)</span><input type="password" name="new" required minlength="8" autocomplete="new-password"></label>
-          <label><span>Confirm new password</span><input type="password" name="confirm" required minlength="8" autocomplete="new-password"></label>
+        <form id="passwordForm">
+          <div class="error-box hidden"></div>
+          <label><span>Current password</span><input type="password" name="current" required></label>
+          <label><span>New password</span><input type="password" name="new" required minlength="8"></label>
+          <label><span>Confirm new password</span><input type="password" name="confirm" required minlength="8"></label>
           <button class="btn" type="submit">Change password</button>
         </form></div>
     </div>
   </div>
 </div>
+
 <script src="js/app.js"></script>
 <script>
-(async () => {
-  if (!await layout('profile', { approval: false })) return;
-  const fill = () => {
-    $('#pic').innerHTML = avatar(ME, 'lg');
-    $('#pname').textContent = ME.name;
-    $('#pmeta').textContent = ME.role + ' · joined ' + fmtDate(ME.createdAt);
-    const f = $('#profileForm').elements;
-    ['name', 'email', 'title', 'phone', 'bio'].forEach((k) => f[k].value = ME[k] || '');
-    $('#team').innerHTML = MY_ADMIN ? `<div class="row">${avatar(MY_ADMIN)}<div>You work under <b>${esc(MY_ADMIN.name)}</b><div class="small muted">${esc(MY_ADMIN.email)}</div></div></div>`
-      : isAdmin() ? '<p class="muted">You are an administrator.</p>' : '<p class="muted">You are not on a team yet. <a href="requests.html">Choose an administrator</a>.</p>';
-  };
-  fill();
-  const guard = (form, fn) => form.onsubmit = async (e) => {
-    e.preventDefault();
-    const err = $('.error-box', form); err.classList.add('hidden');
-    if (!form.checkValidity()) { form.reportValidity(); return; }
-    const btn = $('button[type=submit]', form); btn.disabled = true;
-    try { await fn(formObj(form)); } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
-    btn.disabled = false;
-  };
-  guard($('#profileForm'), async (d) => {
-    await api('/me', { method: 'PUT', body: d });
-    ME = (await api('/me')).user; fill(); toast('Profile saved');
-  });
-  guard($('#pwForm'), async (d) => {
-    if (d.new !== d.confirm) throw new Error('New passwords do not match');
-    await api('/me/password', { body: { current: d.current, new: d.new } });
-    localStorage.removeItem('fz_token');
-    toast('Password changed. Please log in again.');
-    setTimeout(() => location.href = 'index.html', 1200);
-  });
-  $('#avatarForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const file = e.target.elements.avatar.files[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return toast('Picture must be 2 MB or smaller', 'error');
-    const fd = new FormData(); fd.append('avatar', file);
-    try { const r = await api('/me/avatar', { body: fd }); ME.avatar = r.avatar; fill(); toast('Profile picture updated'); } catch (ex) { fail(ex); }
-  };
-})();
+  function showProfile() {
+    $('#picture').innerHTML = avatar(ME).replace('class="avatar"', 'class="avatar lg"');
+    const form = $('#profileForm').elements;
+    form.name.value = ME.name;
+    form.title.value = ME.title;
+    form.phone.value = ME.phone;
+    $('#email').value = ME.email;
+    $('#team').innerHTML = MY_ADMIN ? `You work under <b>${esc(MY_ADMIN.name)}</b> (${esc(MY_ADMIN.email)})`
+      : ['admin', 'sysadmin'].includes(ME.role) ? 'You are an administrator.' : 'You are not in a team yet. <a href="requests.html">Choose an administrator</a>.';
+  }
+
+  async function uploadAvatar(event) {
+    event.preventDefault();
+    const file = $('#avatar').files[0];
+    if (file.size > 2 * 1024 * 1024) return toast('The picture must be 2 MB or smaller', true);
+    const form = new FormData();
+    form.append('avatar', file);
+    try {
+      ME.avatar = (await api('/me/avatar', 'POST', form)).avatar;
+      showProfile();
+      toast('Picture updated');
+    } catch (error) { toastError(error); }
+  }
+
+  async function init() {
+    if (!await startPage('profile', { needsApproval: false })) return;
+    showProfile();
+    handleForm($('#profileForm'), async (data) => {
+      await api('/me', 'PUT', data);
+      ME.name = data.name; ME.title = data.title; ME.phone = data.phone;
+      toast('Profile saved');
+    });
+    handleForm($('#passwordForm'), async (data) => {
+      if (data.new !== data.confirm) throw new Error('The new passwords do not match');
+      await api('/me/password', 'POST', { current: data.current, new: data.new });
+      localStorage.removeItem('token');
+      alert('Password changed. Please log in again.');
+      location.href = 'index.html';
+    });
+  }
+
+  init();
 </script>
 </body>
 </html>

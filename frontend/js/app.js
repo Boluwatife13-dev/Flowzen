@@ -1,223 +1,241 @@
-// Flowzen shared helpers: API client, layout, modals, toasts, formatting.
-// Change the backend address here (or run: localStorage.fz_api = "https://your-api").
-// When the backend serves these pages (localhost:8080 or your live domain) it uses the same address;
-// when opened from Live Server or another local port it talks to http://localhost:8080.
-const API_URL = localStorage.getItem('fz_api')
-  || (location.port === '8080' || !['localhost', '127.0.0.1', ''].includes(location.hostname) ? location.origin : 'http://localhost:8080');
+// Shared code for every Flowzen page.
 
-const $ = (s, el = document) => el.querySelector(s);
-const qs = (k) => new URLSearchParams(location.search).get(k);
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const label = (s) => esc(String(s || '').replace(/_/g, ' '));
-const STATUSES = ['pending', 'in_progress', 'review', 'blocked', 'completed'];
-const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
-const PROJECT_STATUSES = ['planning', 'active', 'on_hold', 'completed', 'cancelled'];
-let ME = null, MY_ADMIN = null;
+// Backend address: the same server when the backend serves these pages,
+// localhost:8080 when you open them another way on your computer.
+// If you host the frontend separately (e.g. Vercel), put your Render link here instead.
+const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname) && location.port !== '8080'
+  ? 'http://localhost:8080'
+  : location.origin;
 
-async function api(path, opts = {}) {
-  const headers = {};
-  const token = localStorage.getItem('fz_token');
-  if (token) headers.Authorization = 'Bearer ' + token;
-  let body = opts.body;
-  if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
-  let res;
+let ME = null;       // the logged-in user
+let MY_ADMIN = null; // the administrator they work under
+
+// ---------- API ----------
+async function api(path, method = 'GET', body = null) {
+  const options = { method, headers: {} };
+  const token = localStorage.getItem('token');
+  if (token) options.headers.Authorization = 'Bearer ' + token;
+  if (body instanceof FormData) {
+    options.body = body;
+  } else if (body) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+
+  let response;
   try {
-    res = await fetch(API_URL + '/api' + path, { method: opts.method || (body ? 'POST' : 'GET'), headers, body });
-  } catch { throw new Error('Cannot reach the Flowzen server. Check that the backend is running.'); }
-  if (res.status === 401 && token && !path.startsWith('/auth/')) {
-    localStorage.removeItem('fz_token');
-    location.href = 'index.html?expired=1';
-    throw new Error('Session expired');
+    response = await fetch(API_URL + '/api' + path, options);
+  } catch (e) {
+    throw new Error('Cannot reach the Flowzen server. Check that the backend is running.');
   }
-  if (opts.raw && res.ok) return res;
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.success === false) throw new Error(data.error || 'Request failed (' + res.status + ')');
-  return data.data !== undefined ? data.data : data;
+  if (response.status === 401 && token) {
+    localStorage.removeItem('token');
+    location.href = 'index.html';
+  }
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Something went wrong');
+  return result.data !== undefined ? result.data : result;
 }
 
-// ---------- UI helpers ----------
-function toast(msg, type = 'success') {
-  let box = $('#toasts');
-  if (!box) { box = document.createElement('div'); box.id = 'toasts'; document.body.appendChild(box); }
-  const t = document.createElement('div');
-  t.className = 'toast ' + type; t.setAttribute('role', 'status'); t.textContent = msg;
-  box.appendChild(t); setTimeout(() => t.remove(), 4000);
-}
-const fail = (e) => toast(e.message || String(e), 'error');
-
-function fmtDate(d) {
-  if (!d) return '—';
-  const dt = d.length === 10 ? new Date(d + 'T00:00:00') : new Date(d);
-  return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-function fmtTime(d) { return d ? new Date(d).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—'; }
-function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
-const badge = (v, cls) => v ? `<span class="badge b-${esc(cls || v)}">${label(v)}</span>` : '';
-const progressBar = (p) => `<div class="row"><div class="progress" style="flex:1"><div style="width:${+p || 0}%"></div></div><span class="small">${+p || 0}%</span></div>`;
-function avatar(u, cls = '') {
-  if (!u) return '';
-  if (u.avatar) return `<img class="avatar ${cls}" src="${esc(API_URL + u.avatar)}" alt="${esc(u.name)}">`;
-  return `<span class="avatar ${cls}" title="${esc(u.name)}">${esc((u.name || '?').split(' ').map((x) => x[0]).join('').slice(0, 2).toUpperCase())}</span>`;
-}
-const loading = (el) => { el.innerHTML = '<div class="loading">Loading…</div>'; };
+// ---------- small helpers ----------
+const $ = (selector) => document.querySelector(selector);
+const param = (name) => new URLSearchParams(location.search).get(name);
+const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const words = (text) => esc(String(text || '').replace(/_/g, ' '));
+const badge = (value, style) => value ? `<span class="badge b-${esc(style || value)}">${words(value)}</span>` : '';
 const empty = (text) => `<div class="empty">${esc(text)}</div>`;
-const options = (list, selected, labels) => list.map((v, i) => `<option value="${esc(v)}" ${[].concat(selected).includes(v) ? 'selected' : ''}>${labels ? esc(labels[i]) : label(v)}</option>`).join('');
-const userOptions = (users, selected = []) => users.map((u) => `<option value="${u.id}" ${[].concat(selected).includes(u.id) ? 'selected' : ''}>${esc(u.name)} (${esc(u.email)})</option>`).join('');
+const loading = (el) => el.innerHTML = '<div class="loading">Loading…</div>';
+const showError = (el, error) => el.innerHTML = `<div class="error-box">${esc(error.message)}</div>`;
 
-// formObj turns a form into an object; multi-selects become arrays, checkboxes booleans.
-function formObj(form) {
-  const o = {};
-  for (const el of form.elements) {
-    if (!el.name) continue;
-    if (el.type === 'checkbox') o[el.name] = el.checked;
-    else if (el.multiple) o[el.name] = [...el.selectedOptions].map((x) => x.value);
-    else if (el.type !== 'file') o[el.name] = el.value.trim();
-  }
-  return o;
+function formatDate(value) {
+  if (!value) return '—';
+  const date = value.length === 10 ? new Date(value + 'T00:00:00') : new Date(value);
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
-
-// openModal shows a form dialog; onSubmit(data, form) may be async; return false to keep it open.
-function openModal(title, html, onSubmit, submitText = 'Save') {
-  const ov = document.createElement('div');
-  ov.className = 'overlay';
-  ov.innerHTML = `<form class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}" novalidate><h2>${esc(title)}</h2>
-    <div class="error-box hidden"></div>${html}<div class="row end"><button type="button" class="btn light" data-close>${onSubmit ? 'Cancel' : 'Close'}</button>
-    ${onSubmit ? `<button class="btn" type="submit">${esc(submitText)}</button>` : ''}</div></form>`;
-  document.body.appendChild(ov);
-  const form = $('form', ov), err = $('.error-box', ov), close = () => ov.remove();
-  ov.addEventListener('click', (e) => { if (e.target === ov || e.target.hasAttribute('data-close')) close(); });
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!form.checkValidity()) { err.textContent = 'Please fill in all required fields correctly.'; err.classList.remove('hidden'); form.reportValidity(); return; }
-    const btn = $('button[type=submit]', form);
-    btn.disabled = true; err.classList.add('hidden');
-    try { if ((await onSubmit(formObj(form), form)) !== false) close(); }
-    catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
-    btn.disabled = false;
-  });
-  const first = $('input,select,textarea', form); if (first) first.focus();
-  return form;
+function formatTime(value) {
+  return value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 }
-
-function confirmBox(text, okText = 'Delete') {
-  return new Promise((resolve) => {
-    const ov = document.createElement('div');
-    ov.className = 'overlay';
-    ov.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true"><h2>Please confirm</h2><p>${esc(text)}</p>
-      <div class="row end"><button class="btn light" data-v="0">Cancel</button><button class="btn danger" data-v="1">${esc(okText)}</button></div></div>`;
-    document.body.appendChild(ov);
-    ov.addEventListener('click', (e) => {
-      const v = e.target.getAttribute('data-v');
-      if (v !== null || e.target === ov) { ov.remove(); resolve(v === '1'); }
-    });
-    $('[data-v="1"]', ov).focus();
-  });
+function progressBar(percent) {
+  return `<div class="row"><div class="progress" style="flex:1"><div style="width:${percent}%"></div></div><span class="small">${percent}%</span></div>`;
 }
-
-function pager(el, res, go) {
-  if (!res || res.pages <= 1) { el.innerHTML = res && res.total ? `<div class="pager small muted">${res.total} record(s)</div>` : ''; return; }
-  el.innerHTML = `<div class="pager"><span class="small muted">${res.total} records · page ${res.page} of ${res.pages}</span>
-    <button class="btn light sm" ${res.page <= 1 ? 'disabled' : ''} data-p="${res.page - 1}">‹ Prev</button>
-    <button class="btn light sm" ${res.page >= res.pages ? 'disabled' : ''} data-p="${res.page + 1}">Next ›</button></div>`;
-  el.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => go(+b.dataset.p));
+function avatar(user) {
+  if (!user) return '';
+  if (user.avatar) return `<img class="avatar" src="${esc(API_URL + user.avatar)}" alt="">`;
+  const initials = (user.name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  return `<span class="avatar">${esc(initials)}</span>`;
 }
-
+// turns a list of users into a lookup: people[id] -> user
+function byId(users) {
+  const map = {};
+  (users || []).forEach((u) => map[u.id] = u);
+  return map;
+}
+function options(values, selected) {
+  return values.map((v) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${words(v)}</option>`).join('');
+}
+function userOptions(users, selected = []) {
+  return users.map((u) => `<option value="${u.id}" ${selected.includes(u.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+}
 function activityList(items) {
   if (!items || !items.length) return empty('No activity yet');
-  return items.map((a) => `<div class="list-item"><div><b>${esc(a.actorName)}</b> ${esc(a.action)}${a.details ? ` <span class="muted">— ${esc(a.details)}</span>` : ''}</div>
-    <span class="small muted" style="white-space:nowrap">${fmtTime(a.createdAt)}</span></div>`).join('');
+  return items.map((a) => `<div class="list-item"><div><b>${esc(a.userName)}</b> ${esc(a.action)}</div>
+    <span class="small muted">${formatTime(a.createdAt)}</span></div>`).join('');
+}
+function pager(el, result, goToPage) {
+  if (!result.pages || result.pages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="pager"><span class="small muted">Page ${result.page} of ${result.pages}</span>
+    <button class="btn light sm" id="prevPage" ${result.page <= 1 ? 'disabled' : ''}>‹ Prev</button>
+    <button class="btn light sm" id="nextPage" ${result.page >= result.pages ? 'disabled' : ''}>Next ›</button></div>`;
+  el.querySelector('#prevPage').onclick = () => goToPage(result.page - 1);
+  el.querySelector('#nextPage').onclick = () => goToPage(result.page + 1);
 }
 
-const isApproved = () => ME && (['admin', 'sysadmin'].includes(ME.role) || !!ME.adminId);
-const isAdmin = () => ME && ['admin', 'sysadmin'].includes(ME.role);
+function toast(message, isError = false) {
+  const box = document.createElement('div');
+  box.className = 'toast ' + (isError ? 'error' : 'success');
+  box.textContent = message;
+  let holder = $('#toasts');
+  if (!holder) {
+    holder = document.createElement('div');
+    holder.id = 'toasts';
+    document.body.appendChild(holder);
+  }
+  holder.appendChild(box);
+  setTimeout(() => box.remove(), 4000);
+}
+const toastError = (error) => toast(error.message, true);
 
-// ---------- page shell ----------
-async function layout(active, { approval = true, roles } = {}) {
-  if (!localStorage.getItem('fz_token')) { location.href = 'index.html'; return false; }
+// ---------- forms and dialogs ----------
+// Reads a form into an object. Multi-selects become arrays, checkboxes become true/false.
+function formData(form) {
+  const data = {};
+  for (const field of form.elements) {
+    if (!field.name || field.type === 'file') continue;
+    if (field.type === 'checkbox') data[field.name] = field.checked;
+    else if (field.multiple) data[field.name] = [...field.selectedOptions].map((o) => o.value);
+    else data[field.name] = field.value.trim();
+  }
+  return data;
+}
+
+// handleForm runs save(data) on submit, shows errors inside the form and closes its dialog on success.
+function handleForm(form, save) {
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const errorBox = form.querySelector('.error-box');
+    const button = form.querySelector('button[type=submit]');
+    errorBox.classList.add('hidden');
+    button.disabled = true;
+    try {
+      await save(formData(form));
+      const dialog = form.closest('dialog');
+      if (dialog) dialog.close();
+    } catch (error) {
+      errorBox.textContent = error.message;
+      errorBox.classList.remove('hidden');
+    }
+    button.disabled = false;
+  };
+}
+
+function openDialog(id) {
+  const dialog = document.getElementById(id);
+  dialog.querySelectorAll('.error-box').forEach((box) => box.classList.add('hidden'));
+  dialog.showModal();
+}
+function closeDialog(button) { button.closest('dialog').close(); }
+
+// ---------- page layout ----------
+// Checks login, then draws the sidebar and top bar around the page content.
+async function startPage(activePage, { needsApproval = true, onlyFor = null } = {}) {
+  if (!localStorage.getItem('token')) { location.href = 'index.html'; return false; }
+  try {
+    const me = await api('/me');
+    ME = me.user;
+    MY_ADMIN = me.admin;
+  } catch (error) {
+    toastError(error);
+    return false;
+  }
+  const approved = ['admin', 'sysadmin'].includes(ME.role) || ME.adminId;
+  if (needsApproval && !approved) { location.href = 'requests.html'; return false; }
+  if (onlyFor && !onlyFor.includes(ME.role)) { location.href = 'dashboard.html'; return false; }
+
+  const link = (page, text) => `<a href="${page}.html" class="${activePage === page ? 'active' : ''}">${text}</a>`;
+  let nav = link('dashboard', '🏠 Dashboard');
+  if (approved) nav += '<div class="sect">Work</div>' + link('workspaces', '🗂️ Workspaces') + link('projects', '📁 Projects') + link('tasks', '✅ Tasks') + link('reports', '📊 Reports');
+  nav += '<div class="sect">Team</div>' + link('requests', ['admin', 'sysadmin'].includes(ME.role) ? '📨 Access Requests' : '📨 My Administrator');
+  if (ME.role === 'admin') nav += link('team', '👥 My Team');
+  if (ME.role === 'sysadmin') nav += link('admin', '🛡️ System Admin');
+  nav += '<div class="sect">Account</div>' + link('notifications', '🔔 Notifications') + link('profile', '👤 Profile');
+
   const page = $('#page');
-  page.innerHTML = '<div class="loading">Loading…</div>' + page.innerHTML;
-  let me;
-  try { me = await api('/me'); } catch (e) { fail(e); return false; }
-  ME = me.user; MY_ADMIN = me.admin;
-  $('.loading', page)?.remove();
-  if (approval && !isApproved()) { location.href = 'requests.html'; return false; }
-  if (roles && !roles.includes(ME.role)) { location.href = 'dashboard.html'; return false; }
-
-  const link = (href, text, key) => `<a href="${href}" class="${active === key ? 'active' : ''}">${text}</a>`;
-  let nav = link('dashboard.html', '🏠 Dashboard', 'dashboard');
-  if (isApproved()) nav += '<div class="sect">Work</div>' + link('workspaces.html', '🗂️ Workspaces', 'workspaces') + link('projects.html', '📁 Projects', 'projects')
-    + link('tasks.html', '✅ Tasks', 'tasks') + link('reports.html', '📊 Reports', 'reports');
-  nav += '<div class="sect">Team</div>' + link('requests.html', isAdmin() ? '📨 Access Requests' : '📨 My Administrator', 'requests');
-  if (ME.role === 'admin') nav += link('team.html', '👥 My Team', 'team');
-  if (ME.role === 'sysadmin') nav += '<div class="sect">System</div>' + link('admin.html', '🛡️ System Admin', 'admin');
-  nav += '<div class="sect">Account</div>' + link('notifications.html', '🔔 Notifications', 'notifications') + link('profile.html', '👤 Profile', 'profile');
-
   const shell = document.createElement('div');
   shell.className = 'app';
-  shell.innerHTML = `<nav class="sidebar" aria-label="Main navigation"><div class="logo"><span>F</span>Flowzen</div>${nav}</nav>
-    <div class="main"><header class="topbar"><button class="menu-btn" aria-label="Toggle menu">☰</button><div class="muted hide-sm">${esc(MY_ADMIN ? 'Team: ' + MY_ADMIN.name : label(ME.role))}</div>
-      <div class="actions"><a class="bell" href="notifications.html" aria-label="Notifications">🔔<span class="count hidden" id="notif-count"></span></a>
-      <div class="profile-menu"><button aria-haspopup="true" aria-label="Profile menu">${avatar(ME)}<span class="hide-sm">${esc(ME.name)}</span> ▾</button>
-      <div class="dropdown"><div class="small muted" style="padding:6px 10px">${esc(ME.email)}<br>${label(ME.role)}</div>
-      <a href="profile.html">My profile</a><a href="notifications.html">Notifications</a><button id="logout">Log out</button></div></div></div></header>
-      <main class="content"></main></div>`;
+  shell.innerHTML = `
+    <nav class="sidebar"><div class="logo"><span>F</span>Flowzen</div>${nav}</nav>
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" onclick="$('.sidebar').classList.toggle('open')" aria-label="Menu">☰</button>
+        <div class="muted hide-sm">${MY_ADMIN ? 'Team: ' + esc(MY_ADMIN.name) : words(ME.role)}</div>
+        <div class="actions">
+          <a class="bell" href="notifications.html" aria-label="Notifications">🔔<span class="count hidden" id="unread"></span></a>
+          <div class="profile-menu">
+            <button onclick="event.stopPropagation(); $('.dropdown').classList.toggle('open')">${avatar(ME)}<span class="hide-sm">${esc(ME.name)}</span> ▾</button>
+            <div class="dropdown"><a href="profile.html">My profile</a><button onclick="logout()">Log out</button></div>
+          </div>
+        </div>
+      </header>
+      <main class="content"></main>
+    </div>`;
   document.body.prepend(shell);
-  $('.content', shell).appendChild(page);
-  $('.menu-btn', shell).onclick = () => $('.sidebar').classList.toggle('open');
-  const dd = $('.dropdown', shell);
-  $('.profile-menu > button', shell).onclick = (e) => { e.stopPropagation(); dd.classList.toggle('open'); };
-  document.addEventListener('click', () => dd.classList.remove('open'));
-  $('#logout').onclick = logout;
-  refreshCount(); setInterval(refreshCount, 60000);
+  shell.querySelector('.content').appendChild(page);
+  document.addEventListener('click', () => $('.dropdown').classList.remove('open'));
+  updateUnreadCount();
+  setInterval(updateUnreadCount, 60000);
   return true;
 }
 
-async function refreshCount() {
+async function updateUnreadCount() {
   try {
-    const { unread } = await api('/notifications/count');
-    const el = $('#notif-count');
-    el.textContent = unread > 99 ? '99+' : unread;
-    el.classList.toggle('hidden', !unread);
-  } catch { /* ignore */ }
+    const result = await api('/notifications?limit=1');
+    $('#unread').textContent = result.unread;
+    $('#unread').classList.toggle('hidden', result.unread === 0);
+  } catch (e) { /* not important */ }
 }
 
 async function logout() {
-  await api('/auth/logout', { method: 'POST' }).catch(() => {});
-  localStorage.removeItem('fz_token');
+  await api('/auth/logout', 'POST').catch(() => {});
+  localStorage.removeItem('token');
   location.href = 'index.html';
 }
 
-// authForm wires the small public pages (login, register, forgot, reset).
-function authForm(form, handler) {
-  const err = $('.error-box'), info = $('.info');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    err.classList.add('hidden'); if (info) info.classList.add('hidden');
-    if (!form.checkValidity()) { form.reportValidity(); return; }
-    const btn = $('button[type=submit]', form); btn.disabled = true;
-    try {
-      const m = await handler(formObj(form));
-      if (m && info) { info.textContent = m; info.classList.remove('hidden'); }
-    } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
-    btn.disabled = false;
-  });
+// ---------- task form (used on the project, tasks and task pages) ----------
+// people = who can be assigned, projectTasks = other tasks it can depend on,
+// canAssign = only managers/creators can change assignees and dependencies.
+function taskFormHTML(task, people, projectTasks, canAssign) {
+  task = task || {};
+  const statuses = ['pending', 'in_progress', 'review', 'blocked', 'completed'];
+  return `
+    <div class="error-box hidden"></div>
+    <label><span>Title</span><input name="title" required minlength="2" value="${esc(task.title)}"></label>
+    <label><span>Description</span><textarea name="description">${esc(task.description)}</textarea></label>
+    <div class="grid g2">
+      <label><span>Priority</span><select name="priority">${options(['low', 'medium', 'high', 'urgent'], task.priority || 'medium')}</select></label>
+      <label><span>Status</span><select name="status">${options(statuses, task.status || 'pending')}</select></label>
+      <label><span>Start date</span><input type="date" name="startDate" value="${esc(task.startDate)}"></label>
+      <label><span>Due date</span><input type="date" name="dueDate" value="${esc(task.dueDate)}"></label>
+    </div>
+    ${canAssign ? `
+      <label><span>Assign to (hold Ctrl to pick several)</span><select name="assignees" multiple>${userOptions(people, task.assignees || [])}</select></label>
+      <label><span>Depends on</span><select name="dependencies" multiple>${projectTasks.map((t) =>
+        `<option value="${t.id}" ${(task.dependencies || []).includes(t.id) ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}</select></label>` : ''}
+    <label><span>Labels (comma separated)</span><input name="labels" value="${esc((task.labels || []).join(', '))}"></label>
+    <div class="row end"><button type="button" class="btn light" onclick="closeDialog(this)">Cancel</button><button class="btn" type="submit">Save task</button></div>`;
 }
 
-// ---------- shared task form (used by tasks, project and task pages) ----------
-function taskFormHtml(t = {}, members = [], projectTasks = [], canAssign = true) {
-  return `<label><span>Title *</span><input name="title" required minlength="2" maxlength="200" value="${esc(t.title)}"></label>
-    <label><span>Description</span><textarea name="description">${esc(t.description)}</textarea></label>
-    <div class="grid g2">
-      <label><span>Priority</span><select name="priority">${options(PRIORITIES, t.priority || 'medium')}</select></label>
-      <label><span>Status</span><select name="status">${options(STATUSES, t.status || 'pending')}</select></label>
-      <label><span>Start date</span><input type="date" name="startDate" value="${esc(t.startDate)}"></label>
-      <label><span>Due date</span><input type="date" name="dueDate" value="${esc(t.dueDate)}"></label>
-    </div>
-    ${canAssign ? `<label><span>Assignees (hold Ctrl/Cmd to pick several)</span><select name="assignees" multiple>${userOptions(members, t.assignees || [])}</select></label>
-    <label><span>Depends on (must be completed first)</span><select name="dependencies" multiple>${projectTasks.map((x) => `<option value="${x.id}" ${(t.dependencies || []).includes(x.id) ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></label>` : ''}
-    <label><span>Labels (comma separated)</span><input name="labels" value="${esc((t.labels || []).join(', '))}" placeholder="design, backend"></label>`;
-}
-function taskPayload(d) {
-  d.labels = d.labels ? d.labels.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  return d;
+// converts the "labels" text box into a list before sending
+function taskData(form) {
+  form.labels = form.labels ? form.labels.split(',').map((l) => l.trim()).filter(Boolean) : [];
+  return form;
 }

@@ -1,47 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>My Team · Flowzen</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Team · Flowzen</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="page">
-  <div class="page-head"><div><h1>My Team</h1><div class="muted">People who work under you, their roles and workload.</div></div>
-    <a class="btn light" href="requests.html">Pending requests</a></div>
-  <div class="card">
-    <div class="filters"><input id="q" placeholder="Search members…" aria-label="Search members"></div>
-    <div class="table-wrap" id="list"></div>
-  </div>
+  <div class="page-head"><div><h1>My Team</h1><div class="muted">People who work under you.</div></div>
+    <a class="btn light" href="requests.html">Access requests</a></div>
+  <div class="card table-wrap" id="team"></div>
 </div>
+
 <script src="js/app.js"></script>
 <script>
-(async () => {
-  if (!await layout('team', { roles: ['admin'] })) return;
   let workload = {};
-  try { (await api('/reports')).workload.forEach((w) => workload[w.user.id] = w); } catch (e) { fail(e); }
-  const load = async () => {
-    const el = $('#list'); loading(el);
+
+  async function loadTeam() {
+    loading($('#team'));
     try {
-      const list = (await api('/team?q=' + encodeURIComponent($('#q').value))).filter((u) => u.id !== ME.id);
-      el.innerHTML = list.length ? `<table><thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Open tasks</th><th>Overdue</th><th></th></tr></thead><tbody>
-        ${list.map((u) => { const w = workload[u.id] || { open: 0, overdue: 0 }; return `<tr><td><div class="row">${avatar(u)}<div>${esc(u.name)}<div class="small muted">${esc(u.email)}</div></div></div></td>
-          <td><select data-role="${u.id}" aria-label="Role">${options(['member', 'manager'], u.role)}</select></td>
-          <td>${badge(u.active ? 'active' : 'inactive')}</td><td>${w.open}</td><td>${w.overdue}</td>
-          <td class="right"><div class="row" style="justify-content:flex-end"><button class="btn light sm" data-act="${u.id}" data-v="${!u.active}">${u.active ? 'Deactivate' : 'Activate'}</button>
-          <button class="btn danger sm" data-rm="${u.id}" data-name="${esc(u.name)}">Remove</button></div></td></tr>`; }).join('')}</tbody></table>` : empty('No team members yet. Approve access requests to grow your team.');
-      const update = async (id, body, okMsg) => { try { await api('/team/' + id, { method: 'PUT', body }); toast(okMsg); load(); } catch (e) { fail(e); load(); } };
-      el.querySelectorAll('[data-role]').forEach((s) => s.onchange = () => update(s.dataset.role, { role: s.value }, 'Role updated'));
-      el.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => update(b.dataset.act, { active: b.dataset.v === 'true' }, 'Account updated'));
-      el.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => {
-        if (await confirmBox(`Remove ${b.dataset.name} from your team? They will lose access to your workspaces and projects.`, 'Remove')) update(b.dataset.rm, { remove: true }, 'Member removed');
-      });
-    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
-  };
-  let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(load, 300); };
-  load();
-})();
+      const members = (await api('/team')).filter((u) => u.id !== ME.id);
+      $('#team').innerHTML = members.length ? `<table><tr><th>Member</th><th>Role</th><th>Status</th><th>Open tasks</th><th>Overdue</th><th></th></tr>
+        ${members.map((u) => {
+          const w = workload[u.id] || { open: 0, overdue: 0 };
+          return `<tr><td><div class="row">${avatar(u)}<div>${esc(u.name)}<div class="small muted">${esc(u.email)}</div></div></div></td>
+            <td><select onchange="changeRole('${u.id}', this.value)">${options(['member', 'manager', 'admin'], u.role)}</select></td>
+            <td>${badge(u.active ? 'active' : 'inactive')}</td><td>${w.open}</td><td>${w.overdue}</td>
+            <td><button class="btn light sm" onclick="updateMember('${u.id}', { active: ${!u.active} })">${u.active ? 'Deactivate' : 'Activate'}</button>
+              <button class="btn danger sm" onclick="removeMember('${u.id}')">Remove</button></td></tr>`;
+        }).join('')}</table>`
+        : empty('No team members yet. Approve access requests to grow your team.');
+    } catch (error) { showError($('#team'), error); }
+  }
+
+  async function updateMember(id, changes) {
+    try {
+      await api('/team/' + id, 'PUT', changes);
+      toast('Saved');
+    } catch (error) { toastError(error); }
+    loadTeam();
+  }
+
+  function changeRole(id, role) {
+    if (role === 'admin' && !confirm('Make this person an admin? They will leave your team and lead their own team.')) {
+      return loadTeam();
+    }
+    updateMember(id, { role });
+  }
+
+  function removeMember(id) {
+    if (confirm('Remove this person from your team? They lose access to your workspaces and projects.')) {
+      updateMember(id, { remove: true });
+    }
+  }
+
+  async function init() {
+    if (!await startPage('team', { onlyFor: ['admin'] })) return;
+    try {
+      (await api('/reports')).workload.forEach((w) => workload[w.user.id] = w);
+    } catch (error) { toastError(error); }
+    loadTeam();
+  }
+
+  init();
 </script>
 </body>
 </html>

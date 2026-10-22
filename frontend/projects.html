@@ -1,64 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Projects · Flowzen</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Projects · Flowzen</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="page">
-  <div class="page-head"><div><h1>Projects</h1><div class="muted">All projects you have access to.</div></div>
-    <button class="btn hidden" id="new">+ New project</button></div>
+  <div class="page-head"><div><h1>Projects</h1><div class="muted">All projects you can access. Create projects from inside a workspace.</div></div></div>
   <div class="card">
     <div class="filters">
-      <input id="q" placeholder="Search projects…" aria-label="Search projects">
-      <select id="ws" aria-label="Workspace"><option value="">All workspaces</option></select>
-      <select id="status" aria-label="Status"><option value="">All statuses</option></select>
-      <select id="sort" aria-label="Sort"><option value="">Newest</option><option value="name">Name</option><option value="deadline">Deadline</option><option value="progress">Progress</option></select>
-      <select id="order" aria-label="Order"><option value="desc">Descending</option><option value="asc">Ascending</option></select>
+      <input id="search" placeholder="Search projects…">
+      <select id="workspace"><option value="">All workspaces</option></select>
+      <select id="status"><option value="">All statuses</option></select>
+      <select id="sort"><option value="">Newest first</option><option value="name">Name</option><option value="deadline">Deadline</option></select>
     </div>
-    <div class="table-wrap" id="list"></div><div id="pager"></div>
+    <div class="table-wrap" id="list"></div>
+    <div id="pager"></div>
   </div>
 </div>
+
 <script src="js/app.js"></script>
 <script>
-(async () => {
-  if (!await layout('projects')) return;
-  $('#status').innerHTML += options(PROJECT_STATUSES);
-  let page = 1, workspaces = [];
-  try { workspaces = (await api('/workspaces?limit=100')).items; } catch (e) { fail(e); }
-  $('#ws').innerHTML += workspaces.map((x) => `<option value="${x.workspace.id}">${esc(x.workspace.name)}</option>`).join('');
-  if (qs('workspaceId')) $('#ws').value = qs('workspaceId');
-  const manageable = workspaces.filter((x) => ['sysadmin', 'admin', 'owner', 'manager'].includes(x.myRole));
+  let page = 1;
 
-  const load = async () => {
-    const el = $('#list'); loading(el);
-    const p = new URLSearchParams({ page, q: $('#q').value, workspaceId: $('#ws').value, status: $('#status').value, sort: $('#sort').value, order: $('#order').value });
+  async function loadProjects() {
+    loading($('#list'));
+    const query = new URLSearchParams({ page, q: $('#search').value, workspaceId: $('#workspace').value, status: $('#status').value, sort: $('#sort').value });
     try {
-      const res = await api('/projects?' + p);
-      el.innerHTML = res.items.length ? `<table><thead><tr><th>Project</th><th>Workspace</th><th>Status</th><th>Deadline</th><th>Tasks</th><th style="width:170px">Progress</th></tr></thead><tbody>
-        ${res.items.map((x) => `<tr><td><a href="project.html?id=${x.project.id}">${esc(x.project.name)}</a><div class="small muted">${label(x.myRole)}</div></td><td>${esc(x.workspace)}</td>
-          <td>${badge(x.project.status)}</td><td>${fmtDate(x.project.deadline)}</td><td>${x.progress.completed}/${x.progress.total}${x.progress.overdue ? ' ' + badge(x.progress.overdue + ' overdue', 'overdue') : ''}</td>
-          <td>${progressBar(x.progress.percent)}</td></tr>`).join('')}</tbody></table>` : empty('No projects match your filters');
-      pager($('#pager'), res, (n) => { page = n; load(); });
-    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
-  };
-  ['#ws', '#status', '#sort', '#order'].forEach((s) => $(s).onchange = () => { page = 1; load(); });
-  let t; $('#q').oninput = () => { clearTimeout(t); t = setTimeout(() => { page = 1; load(); }, 300); };
-
-  if (manageable.length) {
-    $('#new').classList.remove('hidden');
-    $('#new').onclick = () => openModal('New project', `
-      <label><span>Workspace *</span><select name="workspaceId" required>${manageable.map((x) => `<option value="${x.workspace.id}">${esc(x.workspace.name)}</option>`).join('')}</select></label>
-      <label><span>Project name *</span><input name="name" required minlength="2" maxlength="120"></label>
-      <label><span>Description</span><textarea name="description"></textarea></label>
-      <div class="grid g2"><label><span>Status</span><select name="status">${options(PROJECT_STATUSES, 'planning')}</select></label><span></span>
-      <label><span>Start date</span><input type="date" name="startDate"></label><label><span>Deadline</span><input type="date" name="deadline"></label></div>`,
-      async (d) => { const pr = await api('/projects', { body: d }); toast('Project created'); location.href = 'project.html?id=' + pr.id; }, 'Create');
+      const result = await api('/projects?' + query);
+      $('#list').innerHTML = result.items.length ? `<table><tr><th>Project</th><th>Workspace</th><th>Status</th><th>Deadline</th><th>Tasks</th><th>Progress</th></tr>
+        ${result.items.map((item) => `<tr>
+          <td><a href="project.html?id=${item.project.id}">${esc(item.project.name)}</a><div class="small muted">${words(item.myRole)}</div></td>
+          <td>${esc(item.workspace)}</td><td>${badge(item.project.status)}</td><td>${formatDate(item.project.deadline)}</td>
+          <td>${item.progress.completed}/${item.progress.total}${item.progress.overdue ? ' ' + badge(item.progress.overdue + ' overdue', 'overdue') : ''}</td>
+          <td style="width:170px">${progressBar(item.progress.percent)}</td></tr>`).join('')}</table>`
+        : empty('No projects match your filters');
+      pager($('#pager'), result, (p) => { page = p; loadProjects(); });
+    } catch (error) { showError($('#list'), error); }
   }
-  load();
-})();
+
+  async function init() {
+    if (!await startPage('projects')) return;
+    $('#status').innerHTML += options(['planning', 'active', 'on_hold', 'completed', 'cancelled']);
+    try {
+      const workspaces = await api('/workspaces?limit=200');
+      $('#workspace').innerHTML += workspaces.items.map((i) => `<option value="${i.workspace.id}">${esc(i.workspace.name)}</option>`).join('');
+    } catch (error) { toastError(error); }
+    $('#search').oninput = () => { page = 1; loadProjects(); };
+    ['#workspace', '#status', '#sort'].forEach((id) => $(id).onchange = () => { page = 1; loadProjects(); });
+    loadProjects();
+  }
+
+  init();
 </script>
 </body>
 </html>

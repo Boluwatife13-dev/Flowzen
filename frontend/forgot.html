@@ -1,21 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forgot password · Flowzen</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forgot password · Flowzen</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="auth">
-<form class="card" id="f" novalidate>
-  <div class="logo"><span>F</span>Flowzen</div>
-  <p class="muted" style="text-align:center">Enter your email and we'll send you a reset link.</p>
-  <div class="error-box hidden" role="alert"></div><div class="info hidden"></div>
-  <label><span>Email</span><input name="email" type="email" required></label>
-  <button class="btn" type="submit" style="width:100%">Send reset link</button>
-  <p class="small" style="text-align:center"><a href="index.html">Back to login</a></p>
-</form>
-<script src="js/app.js"></script>
-<script>authForm($('#f'), async (d) => (await api('/auth/forgot', { body: d })).message);</script>
+  <form class="card" id="forgotForm">
+    <div class="logo"><span>F</span>Flowzen</div>
+    <p class="muted" style="text-align:center">We'll email you a link to reset your password.</p>
+    <div class="error-box hidden"></div>
+    <div class="info hidden" id="done"></div>
+    <label><span>Email</span><input name="email" type="email" required></label>
+    <button class="btn" type="submit" style="width:100%">Send reset link</button>
+    <p class="small" style="text-align:center"><a href="index.html">Back to login</a></p>
+  </form>
+
+  <script src="js/app.js"></script>
+  <script>
+    handleForm($('#forgotForm'), async (data) => {
+      const result = await api('/auth/forgot', 'POST', data);
+      $('#done').textContent = result.message;
+      $('#done').classList.remove('hidden');
+    });
+  </script>
 </body>
 </html>

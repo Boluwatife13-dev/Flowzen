@@ -2,3 +2,4 @@ uploads/
 .env
 flowzen
 flowzen.exe
+state.json

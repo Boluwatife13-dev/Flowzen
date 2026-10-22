@@ -1,89 +1,111 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tasks · Flowzen</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tasks · Flowzen</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="page">
   <div class="page-head"><div><h1>Tasks</h1><div class="muted">Search, filter and sort every task you can access.</div></div>
-    <div class="row"><button class="btn light" id="mine">My tasks</button><button class="btn hidden" id="new">+ New task</button></div></div>
+    <button class="btn" onclick="openNewTask()">+ New task</button></div>
   <div class="card">
     <div class="filters">
-      <input id="q" placeholder="Search title, description, label…" aria-label="Search tasks">
-      <select id="projectId" aria-label="Project"><option value="">All projects</option></select>
-      <select id="status" aria-label="Status"><option value="">All statuses</option><option value="open">Not completed</option></select>
-      <select id="priority" aria-label="Priority"><option value="">All priorities</option></select>
-      <select id="assignee" aria-label="Assignee"><option value="">Anyone</option><option value="me">Assigned to me</option></select>
-      <select id="due" aria-label="Deadline"><option value="">Any deadline</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Due in 7 days</option><option value="none">No due date</option></select>
-      <input type="date" id="dueFrom" aria-label="Due from" title="Due from">
-      <input type="date" id="dueTo" aria-label="Due to" title="Due to">
-      <select id="sort" aria-label="Sort by"><option value="">Newest</option><option value="dueDate">Due date</option><option value="priority">Priority</option><option value="title">Title</option><option value="status">Status</option><option value="updatedAt">Last updated</option></select>
-      <select id="order" aria-label="Order"><option value="asc">Ascending</option><option value="desc">Descending</option></select>
+      <input id="q" placeholder="Search title, description or label…">
+      <select id="projectId"><option value="">All projects</option></select>
+      <select id="status"><option value="">All statuses</option><option value="open">Not completed</option></select>
+      <select id="priority"><option value="">All priorities</option></select>
+      <select id="assignee"><option value="">Anyone</option><option value="me">Assigned to me</option></select>
+      <select id="due"><option value="">Any deadline</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Due in 7 days</option><option value="none">No due date</option></select>
+      <input type="date" id="dueFrom" title="Due from">
+      <input type="date" id="dueTo" title="Due to">
+      <select id="sort"><option value="">Newest first</option><option value="dueDate">Due date</option><option value="priority">Priority</option><option value="title">Title</option><option value="status">Status</option></select>
+      <select id="order"><option value="">Default order</option><option value="asc">Ascending</option><option value="desc">Descending</option></select>
     </div>
-    <div class="table-wrap" id="list"></div><div id="pager"></div>
+    <div class="table-wrap" id="list"></div>
+    <div id="pager"></div>
   </div>
 </div>
+
+<dialog id="taskDialog">
+  <h2>New task</h2>
+  <label><span>Project</span><select id="taskProject"></select></label>
+  <form id="taskForm"></form>
+</dialog>
+
 <script src="js/app.js"></script>
 <script>
-(async () => {
-  if (!await layout('tasks')) return;
-  const F = ['q', 'projectId', 'status', 'priority', 'assignee', 'due', 'dueFrom', 'dueTo', 'sort', 'order'];
-  $('#status').innerHTML += options(STATUSES);
-  $('#priority').innerHTML += options(PRIORITIES);
-  let projects = [], page = 1;
-  try {
-    const [p, team] = await Promise.all([api('/projects?limit=500'), api('/team')]);
-    projects = p.items;
-    $('#projectId').innerHTML += projects.map((x) => `<option value="${x.project.id}">${esc(x.project.name)}</option>`).join('');
-    $('#assignee').innerHTML += team.filter((u) => u.id !== ME.id).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
-  } catch (e) { fail(e); }
-  F.forEach((k) => { if (qs(k)) $('#' + k).value = qs(k); });
+  const filters = ['q', 'projectId', 'status', 'priority', 'assignee', 'due', 'dueFrom', 'dueTo', 'sort', 'order'];
+  let page = 1;
+  let myProjects = [];
 
-  const load = async () => {
-    const el = $('#list'); loading(el);
-    const p = new URLSearchParams({ page, limit: 15 });
-    F.forEach((k) => { if ($('#' + k).value) p.set(k, $('#' + k).value); });
-    history.replaceState(null, '', '?' + p);
+  async function loadTasks() {
+    loading($('#list'));
+    const query = new URLSearchParams({ page, limit: 15 });
+    filters.forEach((name) => { if ($('#' + name).value) query.set(name, $('#' + name).value); });
     try {
-      const res = await api('/tasks?' + p);
-      el.innerHTML = res.items.length ? `<table><thead><tr><th>Task</th><th>Project</th><th>Assignees</th><th>Priority</th><th>Status</th><th>Due</th><th>Subtasks</th></tr></thead><tbody>
-        ${res.items.map((x) => { const t = x.task, subs = t.subtasks || []; return `<tr><td><a href="task.html?id=${t.id}">${esc(t.title)}</a>${(t.labels || []).map((l) => ` <span class="badge label">${esc(l)}</span>`).join('')}</td>
-          <td class="small">${esc(x.project)}</td><td><div class="row">${x.assignees.map((a) => avatar(a)).join('') || '<span class="muted">—</span>'}</div></td>
-          <td>${badge(t.priority)}</td><td>${badge(t.status)}</td><td style="white-space:nowrap">${fmtDate(t.dueDate)} ${x.overdue ? badge('overdue') : ''}</td>
-          <td class="small">${subs.length ? subs.filter((s) => s.done).length + '/' + subs.length : '—'}</td></tr>`; }).join('')}</tbody></table>` : empty('No tasks match these filters');
-      pager($('#pager'), res, (n) => { page = n; load(); });
-    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
-  };
-  F.forEach((k) => $('#' + k).addEventListener(k === 'q' ? 'input' : 'change', () => { clearTimeout(window._t); window._t = setTimeout(() => { page = 1; load(); }, k === 'q' ? 300 : 0); }));
-  $('#mine').onclick = () => { F.forEach((k) => $('#' + k).value = ''); $('#assignee').value = 'me'; $('#order').value = 'asc'; page = 1; load(); };
+      const result = await api('/tasks?' + query);
+      const people = byId(result.users);
+      $('#list').innerHTML = result.items.length ? `<table><tr><th>Task</th><th>Project</th><th>Assignees</th><th>Priority</th><th>Status</th><th>Due</th></tr>
+        ${result.items.map((t) => {
+          const late = t.status !== 'completed' && t.dueDate && t.dueDate < new Date().toLocaleDateString('en-CA');
+          return `<tr><td><a href="task.html?id=${t.id}">${esc(t.title)}</a> ${t.labels.map((l) => `<span class="badge label">${esc(l)}</span>`).join(' ')}</td>
+            <td class="small">${esc(result.projects[t.projectId])}</td>
+            <td>${t.assignees.map((id) => esc(people[id] ? people[id].name : '')).join(', ') || '—'}</td>
+            <td>${badge(t.priority)}</td><td>${badge(t.status)}</td>
+            <td>${formatDate(t.dueDate)} ${late ? badge('overdue') : ''}</td></tr>`;
+        }).join('')}</table>`
+        : empty('No tasks match these filters');
+      pager($('#pager'), result, (p) => { page = p; loadTasks(); });
+    } catch (error) { showError($('#list'), error); }
+  }
 
-  // New task: pick a project, then members and dependencies load for that project.
-  const creatable = projects.filter((x) => ['manager', 'contributor'].includes(x.myRole));
-  const newTask = () => {
-    if (!creatable.length) return toast('You need manager or contributor access to a project to create tasks', 'error');
-    const form = openModal('New task', `<label><span>Project *</span><select name="projectId" required>${creatable.map((x) => `<option value="${x.project.id}" data-m="${x.myRole === 'manager'}">${esc(x.project.name)}</option>`).join('')}</select></label>
-      <div id="tf">${taskFormHtml({}, [], [], true)}</div>`,
-      async (d) => { const t = await api('/tasks', { body: taskPayload(d) }); toast('Task created'); location.href = 'task.html?id=' + t.id; }, 'Create task');
-    const sel = $('[name=projectId]', form);
-    const fill = async () => {
-      const manager = sel.selectedOptions[0].dataset.m === 'true';
-      try {
-        const [p, t] = await Promise.all([api('/projects/' + sel.value), api(`/tasks?projectId=${sel.value}&limit=500`)]);
-        const people = [...p.members];
-        const admin = p.wsMembers.find((u) => u.id === p.project.adminId);
-        if (admin && !people.some((u) => u.id === admin.id)) people.push(admin);
-        $('#tf', form).innerHTML = taskFormHtml(formObjSafe(form), people, t.items.map((x) => ({ id: x.task.id, title: x.task.title })), manager);
-      } catch (e) { fail(e); }
-    };
-    sel.onchange = fill; fill();
-  };
-  const formObjSafe = (form) => { const o = formObj(form); o.assignees = []; o.dependencies = []; o.labels = o.labels ? o.labels.split(',').map((s) => s.trim()) : []; return o; };
-  if (creatable.length) { $('#new').classList.remove('hidden'); $('#new').onclick = newTask; if (qs('new')) newTask(); }
-  load();
-})();
+  // New task: choose a project first, then load its members and tasks into the form.
+  async function fillTaskForm() {
+    const project = myProjects.find((item) => item.project.id === $('#taskProject').value);
+    try {
+      const details = await api('/projects/' + project.project.id);
+      const projectTasks = await api(`/tasks?projectId=${project.project.id}&limit=200`);
+      const people = byId(details.users);
+      const assignable = details.project.members.map((m) => people[m.userId]).filter(Boolean);
+      $('#taskForm').innerHTML = taskFormHTML(null, assignable, projectTasks.items, project.myRole === 'manager');
+    } catch (error) { toastError(error); }
+  }
+
+  function openNewTask() {
+    if (!myProjects.length) return toast('You need manager or contributor access to a project to create tasks', true);
+    fillTaskForm();
+    openDialog('taskDialog');
+  }
+
+  async function init() {
+    if (!await startPage('tasks')) return;
+    $('#priority').innerHTML += options(['low', 'medium', 'high', 'urgent']);
+    $('#status').innerHTML += options(['pending', 'in_progress', 'review', 'blocked', 'completed']);
+    try {
+      const projects = await api('/projects?limit=200');
+      $('#projectId').innerHTML += projects.items.map((i) => `<option value="${i.project.id}">${esc(i.project.name)}</option>`).join('');
+      myProjects = projects.items.filter((i) => i.myRole === 'manager' || i.myRole === 'contributor');
+      $('#taskProject').innerHTML = myProjects.map((i) => `<option value="${i.project.id}">${esc(i.project.name)}</option>`).join('');
+      const team = await api('/team');
+      $('#assignee').innerHTML += team.filter((u) => u.id !== ME.id).map((u) => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+    } catch (error) { toastError(error); }
+
+    // filters from the link, e.g. tasks.html?assignee=me&due=overdue
+    filters.forEach((name) => { if (param(name)) $('#' + name).value = param(name); });
+    filters.forEach((name) => $('#' + name).addEventListener(name === 'q' ? 'input' : 'change', () => { page = 1; loadTasks(); }));
+
+    $('#taskProject').onchange = fillTaskForm;
+    handleForm($('#taskForm'), async (form) => {
+      const task = await api('/tasks', 'POST', { ...taskData(form), projectId: $('#taskProject').value });
+      location.href = 'task.html?id=' + task.id;
+    });
+    if (param('new')) openNewTask();
+    loadTasks();
+  }
+
+  init();
 </script>
 </body>
 </html>
