@@ -1,11 +1,8 @@
-// Shared code for every Flowzen page.
 
-// Backend address: the same server when the backend serves these pages,
-// localhost:8080 when you open them another way on your computer.
-// If you host the frontend separately (e.g. Vercel), put your Render link here instead.
-const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname) && location.port !== '8080'
+const BACKEND_URL = 'https://YOUR-RENDER-SERVICE.onrender.com'; // your Render link, no / at the end
+const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname)
   ? 'http://localhost:8080'
-  : location.origin;
+  : BACKEND_URL;
 
 let ME = null;       // the logged-in user
 let MY_ADMIN = null; // the administrator they work under
