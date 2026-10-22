@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <p class="small"><a href="tasks.html">← All tasks</a></p>
+  <div id="body"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  if (!await layout('tasks')) return;
+  const id = qs('id'), body = $('#body');
+  let d, comments = [];
+
+  const load = async () => {
+    try { [d, comments] = await Promise.all([api('/tasks/' + id), api(`/tasks/${id}/comments`)]); }
+    catch (e) { body.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+    render();
+  };
+
+  const commentHtml = (c, replies) => `<div class="comment" id="c-${c.id}"><div class="row">${avatar(c.author)}<b>${esc(c.author.name)}</b>
+      <span class="small muted">${fmtTime(c.createdAt)}${c.editedAt ? ' · edited' : ''}</span></div><p>${esc(c.body)}</p>
+      <div class="row small"><a href="#" data-reply="${c.id}">Reply</a>${c.authorId === ME.id ? `<a href="#" data-edit="${c.id}">Edit</a>` : ''}
+      ${c.authorId === ME.id || d.myRole === 'manager' ? `<a href="#" data-delc="${c.id}" style="color:var(--bad)">Delete</a>` : ''}</div>
+      ${replies.length ? `<div class="reply">${replies.map((r) => commentHtml(r, [])).join('')}</div>` : ''}</div>`;
+
+  const render = () => {
+    const t = d.task, subs = t.subtasks || [], files = t.attachments || [], done = subs.filter((s) => s.done).length;
+    const canUpload = d.canEdit || d.myRole === 'contributor';
+    document.title = t.title + ' · Flowzen';
+    const roots = comments.filter((c) => !c.parentId);
+    body.innerHTML = `<div class="page-head"><div><h1>${esc(t.title)}</h1>
+        <div class="row" style="margin-top:6px">${badge(t.status)}${badge(t.priority)}${d.overdue ? badge('overdue') : ''}${(t.labels || []).map((l) => `<span class="badge label">${esc(l)}</span>`).join('')}</div>
+        <div class="small muted" style="margin-top:8px">Project <a href="project.html?id=${d.project.id}">${esc(d.project.name)}</a> · Created by ${esc(d.creator ? d.creator.name : '—')} on ${fmtDate(t.createdAt)}
+        · Start ${fmtDate(t.startDate)} · Due ${fmtDate(t.dueDate)}${t.completedAt ? ' · Completed ' + fmtDate(t.completedAt) : ''}</div></div>
+      <div class="row">${d.canEdit ? `<select id="quickStatus" aria-label="Change status" style="width:auto">${options(STATUSES, t.status)}</select><button class="btn light" id="edit">Edit</button>` : ''}
+      ${d.canManage ? '<button class="btn danger" id="del">Delete</button>' : ''}</div></div>
+    <div class="grid g2">
+      <div>
+        <div class="card"><h2>Description</h2><p style="white-space:pre-wrap;margin:0">${esc(t.description) || '<span class="muted">No description</span>'}</p></div>
+        <div class="card"><div class="row between"><h2>Subtasks (${done}/${subs.length})</h2></div>${subs.length ? progressBar(Math.round(done * 100 / subs.length)) : ''}
+          ${subs.map((s) => `<div class="list-item"><label class="row" style="margin:0;font-weight:400"><input type="checkbox" data-sub="${s.id}" ${s.done ? 'checked' : ''} ${d.canEdit ? '' : 'disabled'}>
+            <span style="${s.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(s.title)}</span></label>
+            ${d.canEdit ? `<button class="btn light sm" data-delsub="${s.id}" aria-label="Delete subtask">✕</button>` : ''}</div>`).join('') || empty('No subtasks')}
+          ${d.canEdit ? '<form class="row" id="subForm" style="margin-top:10px"><input name="title" placeholder="Add a subtask…" required maxlength="200" style="flex:1"><button class="btn sm">Add</button></form>' : ''}</div>
+        <div class="card"><h2>Comments (${comments.length})</h2>
+          ${roots.length ? roots.map((c) => commentHtml(c, comments.filter((r) => r.parentId === c.id))).join('') : empty('No comments yet. Start the discussion.')}
+          <form id="commentForm" style="margin-top:12px"><input type="hidden" name="parentId"><div id="replyTo" class="small muted hidden"></div>
+            <label><span>Add a comment</span><textarea name="body" required maxlength="5000"></textarea></label>
+            <label><span>Mention people (they get notified)</span><select name="mentions" multiple>${userOptions(d.members.filter((m) => m.id !== ME.id))}</select></label>
+            <button class="btn">Post comment</button></form></div>
+      </div>
+      <div>
+        <div class="card"><h2>Assignees</h2>${d.assignees.length ? d.assignees.map((a) => `<div class="list-item"><div class="row">${avatar(a)}<div>${esc(a.name)}<div class="small muted">${esc(a.email)}</div></div></div></div>`).join('') : empty('Nobody assigned')}</div>
+        <div class="card"><h2>Dependencies</h2>${d.dependencies.length ? d.dependencies.map((x) => `<div class="list-item"><a href="task.html?id=${x.id}">${esc(x.title)}</a>${badge(x.status)}</div>`).join('') : empty('This task does not depend on other tasks')}</div>
+        <div class="card"><h2>Attachments (${files.length})</h2>
+          ${files.map((f) => { const who = d.members.find((m) => m.id === f.uploadedBy); return `<div class="list-item"><div><b>${esc(f.name)}</b><div class="small muted">${esc(f.type)} · ${fmtSize(f.size)} · ${fmtTime(f.uploadedAt)}${who ? ' · ' + esc(who.name) : ''}</div></div>
+            <div class="row"><button class="btn light sm" data-dl="${f.id}" data-name="${esc(f.name)}">Download</button>${f.uploadedBy === ME.id || d.canManage ? `<button class="btn danger sm" data-delf="${f.id}">Delete</button>` : ''}</div></div>`; }).join('') || empty('No files attached')}
+          ${canUpload ? '<form id="fileForm" class="row" style="margin-top:10px"><input type="file" name="file" required style="flex:1" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip"><button class="btn sm">Upload</button></form><p class="small muted">Max 10 MB. Documents, images, CSV, TXT and ZIP only.</p>' : ''}</div>
+        <div class="card"><h2>Activity history</h2>${activityList(d.activity)}</div>
+      </div>
+    </div>`;
+    bind();
+  };
+
+  const run = async (fn, okMsg) => { try { await fn(); if (okMsg) toast(okMsg); await load(); } catch (e) { fail(e); } };
+
+  const bind = () => {
+    const t = d.task, on = (s, ev, fn) => { const el = $(s); if (el) el[ev] = fn; };
+    on('#quickStatus', 'onchange', (e) => run(() => api('/tasks/' + id, { method: 'PUT', body: { status: e.target.value } }), 'Status updated'));
+    on('#edit', 'onclick', () => openModal('Edit task', taskFormHtml(t, d.members, d.projectTasks, d.canManage),
+      async (f) => { await api('/tasks/' + id, { method: 'PUT', body: taskPayload(f) }); toast('Task updated'); load(); }));
+    on('#del', 'onclick', async () => {
+      if (!await confirmBox(`Delete task "${t.title}" with its comments and files?`)) return;
+      try { await api('/tasks/' + id, { method: 'DELETE' }); toast('Task deleted'); location.href = 'project.html?id=' + d.project.id; } catch (e) { fail(e); }
+    });
+    on('#subForm', 'onsubmit', (e) => { e.preventDefault(); run(() => api(`/tasks/${id}/subtasks`, { body: { title: e.target.elements.title.value.trim() } })); });
+    body.querySelectorAll('[data-sub]').forEach((c) => c.onchange = () => run(() => api(`/tasks/${id}/subtasks/${c.dataset.sub}`, { method: 'PUT', body: { done: c.checked } })));
+    body.querySelectorAll('[data-delsub]').forEach((b) => b.onclick = async () => { if (await confirmBox('Delete this subtask?')) run(() => api(`/tasks/${id}/subtasks/${b.dataset.delsub}`, { method: 'DELETE' })); });
+    on('#fileForm', 'onsubmit', (e) => {
+      e.preventDefault();
+      const file = e.target.elements.file.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) return toast('File is larger than 10 MB', 'error');
+      const fd = new FormData(); fd.append('file', file);
+      run(() => api(`/tasks/${id}/attachments`, { body: fd }), 'File uploaded');
+    });
+    body.querySelectorAll('[data-dl]').forEach((b) => b.onclick = async () => {
+      try {
+        const res = await api(`/tasks/${id}/attachments/${b.dataset.dl}`, { raw: true });
+        const url = URL.createObjectURL(await res.blob()), a = document.createElement('a');
+        a.href = url; a.download = b.dataset.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) { fail(e); }
+    });
+    body.querySelectorAll('[data-delf]').forEach((b) => b.onclick = async () => { if (await confirmBox('Delete this file?')) run(() => api(`/tasks/${id}/attachments/${b.dataset.delf}`, { method: 'DELETE' }), 'File deleted'); });
+    // comments
+    const cf = $('#commentForm');
+    cf.onsubmit = (e) => {
+      e.preventDefault();
+      const f = formObj(cf);
+      if (!f.body) return toast('Write something first', 'error');
+      run(() => api(`/tasks/${id}/comments`, { body: f }), 'Comment posted');
+    };
+    body.querySelectorAll('[data-reply]').forEach((a) => a.onclick = (e) => {
+      e.preventDefault();
+      const c = comments.find((x) => x.id === a.dataset.reply), root = c.parentId || c.id;
+      cf.elements.parentId.value = root;
+      $('#replyTo').innerHTML = `Replying to ${esc(c.author.name)} · <a href="#" id="cancelReply">cancel</a>`;
+      $('#replyTo').classList.remove('hidden');
+      $('#cancelReply').onclick = (ev) => { ev.preventDefault(); cf.elements.parentId.value = ''; $('#replyTo').classList.add('hidden'); };
+      cf.elements.body.focus();
+    });
+    body.querySelectorAll('[data-edit]').forEach((a) => a.onclick = (e) => {
+      e.preventDefault();
+      const c = comments.find((x) => x.id === a.dataset.edit);
+      openModal('Edit comment', `<label><span>Comment</span><textarea name="body" required maxlength="5000">${esc(c.body)}</textarea></label>`,
+        async (f) => { await api('/comments/' + c.id, { method: 'PUT', body: f }); toast('Comment updated'); load(); });
+    });
+    body.querySelectorAll('[data-delc]').forEach((a) => a.onclick = async (e) => {
+      e.preventDefault();
+      if (await confirmBox('Delete this comment and its replies?')) run(() => api('/comments/' + a.dataset.delc, { method: 'DELETE' }), 'Comment deleted');
+    });
+  };
+  loading(body);
+  load();
+})();
+</script>
+</body>
+</html>

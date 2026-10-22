@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <p class="small"><a href="workspaces.html">← All workspaces</a></p>
+  <div id="body"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+const projectForm = (p = {}, members = []) => `
+  <label><span>Project name *</span><input name="name" required minlength="2" maxlength="120" value="${esc(p.name)}"></label>
+  <label><span>Description</span><textarea name="description">${esc(p.description)}</textarea></label>
+  <div class="grid g2"><label><span>Status</span><select name="status">${options(PROJECT_STATUSES, p.status || 'planning')}</select></label>
+  <label><span>Owner</span><select name="ownerId">${userOptions(members, p.ownerId || ME.id)}</select></label>
+  <label><span>Start date</span><input type="date" name="startDate" value="${esc(p.startDate)}"></label>
+  <label><span>Deadline</span><input type="date" name="deadline" value="${esc(p.deadline)}"></label></div>`;
+
+(async () => {
+  if (!await layout('workspaces')) return;
+  const id = qs('id'), body = $('#body');
+  const load = async () => {
+    loading(body);
+    let d;
+    try { d = await api('/workspaces/' + id); } catch (e) { body.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+    const ws = d.workspace, canOwn = ['sysadmin', 'admin', 'owner'].includes(d.myRole);
+    const owner = d.members.find((m) => m.id === ws.ownerId);
+    document.title = ws.name + ' · Flowzen';
+    body.innerHTML = `<div class="page-head"><div><h1>${esc(ws.name)}</h1><div class="muted">${esc(ws.description) || 'No description'}</div>
+        <div class="small muted" style="margin-top:6px">Owner: ${esc(owner ? owner.name : '—')} · Your role: ${label(d.myRole)} · Created ${fmtDate(ws.createdAt)}</div></div>
+      <div class="row">${d.canManage ? '<button class="btn" id="newProject">+ New project</button><button class="btn light" id="edit">Edit</button>' : ''}
+      ${canOwn ? '<button class="btn danger" id="del">Delete</button>' : ''}</div></div>
+      <div class="card"><h2>Projects</h2>${d.projects.length ? `<div class="table-wrap"><table><thead><tr><th>Project</th><th>Status</th><th>Deadline</th><th style="width:180px">Progress</th></tr></thead><tbody>
+        ${d.projects.map((x) => `<tr><td><a href="project.html?id=${x.project.id}">${esc(x.project.name)}</a></td><td>${badge(x.project.status)}</td><td>${fmtDate(x.project.deadline)}</td><td>${progressBar(x.progress.percent)}</td></tr>`).join('')}
+        </tbody></table></div>` : empty('No projects you can access in this workspace')}</div>
+      <div class="card"><div class="row between"><h2>Members (${d.members.length})</h2>${d.canManage ? '<button class="btn sm" id="addMember">+ Add / invite member</button>' : ''}</div>
+        <div class="table-wrap"><table><thead><tr><th>Member</th><th>Role</th><th></th></tr></thead><tbody>
+        ${d.members.map((m) => { const role = ws.roles[m.id] || 'member', isOwner = m.id === ws.ownerId; return `<tr><td><div class="row">${avatar(m)}<div>${esc(m.name)}<div class="small muted">${esc(m.email)}</div></div></div></td>
+          <td>${d.canManage && !isOwner ? `<select data-role="${m.id}" aria-label="Role">${options(['manager', 'member'], role)}</select>` : badge(isOwner ? 'owner' : role)}</td>
+          <td class="right">${d.canManage && !isOwner ? `<button class="btn danger sm" data-rm="${m.id}" data-name="${esc(m.name)}">Remove</button>` : ''}</td></tr>`; }).join('')}
+        </tbody></table></div></div>
+      <div class="card"><h2>Recent activity</h2>${activityList(d.activity)}</div>`;
+
+    const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+    on('#newProject', () => openModal('New project', projectForm({}, d.members), async (f) => {
+      const p = await api('/projects', { body: { ...f, workspaceId: id } }); toast('Project created'); location.href = 'project.html?id=' + p.id;
+    }, 'Create'));
+    on('#edit', () => openModal('Edit workspace', `<label><span>Name *</span><input name="name" required minlength="2" maxlength="100" value="${esc(ws.name)}"></label>
+      <label><span>Description</span><textarea name="description">${esc(ws.description)}</textarea></label>
+      ${canOwn ? `<label><span>Owner</span><select name="ownerId">${userOptions(d.members, ws.ownerId)}</select></label>` : ''}`,
+      async (f) => { await api('/workspaces/' + id, { method: 'PUT', body: f }); toast('Workspace updated'); load(); }));
+    on('#del', async () => {
+      if (!await confirmBox(`Delete workspace "${ws.name}"? All its projects, tasks, comments and files will be removed.`)) return;
+      try { await api('/workspaces/' + id, { method: 'DELETE' }); toast('Workspace deleted'); location.href = 'workspaces.html'; } catch (e) { fail(e); }
+    });
+    on('#addMember', async () => {
+      let team = [];
+      try { team = (await api('/team')).filter((u) => !ws.memberIds.includes(u.id) && u.active && u.role !== 'sysadmin'); } catch (e) { return fail(e); }
+      if (!team.length) return toast('Everyone on your team is already a member', 'error');
+      openModal('Add / invite member', `<label><span>Team member *</span><select name="userId" required>${userOptions(team)}</select></label>
+        <label><span>Workspace role</span><select name="role">${options(['member', 'manager'])}</select></label>
+        <p class="small muted">They will get an in-app notification and an email invitation.</p>`,
+        async (f) => { await api(`/workspaces/${id}/members`, { body: f }); toast('Member added'); load(); }, 'Add member');
+    });
+    body.querySelectorAll('[data-role]').forEach((s) => s.onchange = async () => {
+      try { await api(`/workspaces/${id}/members/${s.dataset.role}`, { method: 'PUT', body: { role: s.value } }); toast('Role updated'); } catch (e) { fail(e); load(); }
+    });
+    body.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => {
+      if (!await confirmBox(`Remove ${b.dataset.name} from this workspace and its projects?`, 'Remove')) return;
+      try { await api(`/workspaces/${id}/members/${b.dataset.rm}`, { method: 'DELETE' }); toast('Member removed'); load(); } catch (e) { fail(e); }
+    });
+  };
+  load();
+})();
+</script>
+</body>
+</html>

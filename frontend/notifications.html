@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <div class="page-head"><div><h1>Notifications</h1><div class="muted" id="sub"></div></div>
+    <div class="row"><label class="row" style="margin:0"><input type="checkbox" id="unreadOnly"> Unread only</label><button class="btn light" id="all">Mark all as read</button></div></div>
+  <div class="card"><div id="list"></div><div id="pager"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  if (!await layout('notifications', { approval: false })) return;
+  const icons = { assignment: '📌', deadline: '⏰', overdue: '⚠️', mention: '💬', reply: '↩️', comment: '💬', request: '📨', task_update: '✏️', workspace: '🗂️', project: '📁', team: '👥', account: '👤' };
+  let page = 1;
+  const load = async () => {
+    const el = $('#list'); loading(el);
+    try {
+      const res = await api(`/notifications?page=${page}&limit=20${$('#unreadOnly').checked ? '&unread=1' : ''}`);
+      $('#sub').textContent = res.unread + ' unread';
+      el.innerHTML = res.items.length ? res.items.map((n) => `<div class="list-item ${n.read ? '' : 'unread'}"><div class="row" style="flex:1">
+          <span aria-hidden="true">${icons[n.type] || '🔔'}</span><div><a href="${esc(n.link)}" data-open="${n.id}">${esc(n.message)}</a><div class="small muted">${fmtTime(n.createdAt)}</div></div></div>
+          ${n.read ? '' : `<button class="btn light sm" data-read="${n.id}">Mark read</button>`}</div>`).join('') : empty('You are all caught up');
+      pager($('#pager'), res, (p) => { page = p; load(); });
+      el.querySelectorAll('[data-read]').forEach((b) => b.onclick = async () => {
+        try { await api(`/notifications/${b.dataset.read}/read`, { method: 'POST' }); refreshCount(); load(); } catch (e) { fail(e); }
+      });
+      el.querySelectorAll('[data-open]').forEach((a) => a.onclick = () => { api(`/notifications/${a.dataset.open}/read`, { method: 'POST' }).catch(() => {}); });
+    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+  };
+  $('#all').onclick = async () => { try { await api('/notifications/read-all', { method: 'POST' }); toast('All marked as read'); refreshCount(); load(); } catch (e) { fail(e); } };
+  $('#unreadOnly').onchange = () => { page = 1; load(); };
+  load();
+})();
+</script>
+</body>
+</html>

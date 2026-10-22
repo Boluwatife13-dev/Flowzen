@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Requests · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <div class="page-head"><div><h1 id="title">My Administrator</h1><div class="muted" id="sub">Choose the administrator you want to work under.</div></div></div>
+
+  <!-- administrators review incoming requests -->
+  <div id="adminView" class="hidden">
+    <div class="tabs" id="tabs"><button data-s="pending" class="active">Pending</button><button data-s="approved">Approved</button><button data-s="rejected">Rejected</button><button data-s="">All</button></div>
+    <div class="card"><div class="table-wrap" id="incoming"></div><div id="pager"></div></div>
+  </div>
+
+  <!-- members choose an administrator -->
+  <div id="userView" class="hidden">
+    <div class="card" id="current"></div>
+    <div class="grid g2">
+      <div class="card"><h2>Find an administrator</h2>
+        <input id="search" placeholder="Search by name…" aria-label="Search administrators" style="margin-bottom:10px">
+        <div id="admins"></div></div>
+      <div class="card"><h2>My requests</h2><div id="mine"></div></div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  if (!await layout('requests', { approval: false })) return;
+
+  if (isAdmin()) {
+    $('#title').textContent = 'Access Requests';
+    $('#sub').textContent = 'Approve or reject people who want to join your team.';
+    $('#adminView').classList.remove('hidden');
+    let status = 'pending', page = 1;
+    const load = async () => {
+      const el = $('#incoming'); loading(el);
+      try {
+        const res = await api(`/requests/incoming?status=${status}&page=${page}`);
+        el.innerHTML = res.items.length ? `<table><thead><tr><th>Applicant</th><th>Message</th>${ME.role === 'sysadmin' ? '<th>Administrator</th>' : ''}<th>Date</th><th>Status</th><th></th></tr></thead><tbody>
+          ${res.items.map((q) => `<tr><td><div class="row">${avatar(q.user)}<div>${esc(q.user.name)}<div class="small muted">${esc(q.user.email)}</div></div></div></td>
+            <td>${esc(q.message) || '<span class="muted">—</span>'}${q.note ? `<div class="small muted">Note: ${esc(q.note)}</div>` : ''}</td>
+            ${ME.role === 'sysadmin' ? `<td>${esc(q.admin.name)}</td>` : ''}<td class="small">${fmtTime(q.createdAt)}</td><td>${badge(q.status)}</td>
+            <td class="right">${q.status === 'pending' ? `<div class="row" style="justify-content:flex-end"><button class="btn ok sm" data-a="${q.id}">Approve</button><button class="btn danger sm" data-r="${q.id}">Reject</button></div>` : ''}</td></tr>`).join('')}
+          </tbody></table>` : empty('No ' + (status || '') + ' requests');
+        pager($('#pager'), res, (p) => { page = p; load(); });
+        el.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
+          b.disabled = true;
+          try { await api(`/requests/${b.dataset.a}/decide`, { body: { decision: 'approve' } }); toast('Request approved'); load(); } catch (e) { fail(e); b.disabled = false; }
+        });
+        el.querySelectorAll('[data-r]').forEach((b) => b.onclick = () => openModal('Reject request',
+          '<label><span>Reason (optional, sent to the applicant)</span><textarea name="note" maxlength="300"></textarea></label>',
+          async (d) => { await api(`/requests/${b.dataset.r}/decide`, { body: { decision: 'reject', note: d.note } }); toast('Request rejected'); load(); }, 'Reject'));
+      } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+    };
+    $('#tabs').onclick = (e) => {
+      if (!e.target.dataset || e.target.dataset.s === undefined) return;
+      $('#tabs .active').classList.remove('active'); e.target.classList.add('active');
+      status = e.target.dataset.s; page = 1; load();
+    };
+    load();
+    return;
+  }
+
+  $('#userView').classList.remove('hidden');
+  $('#current').innerHTML = MY_ADMIN
+    ? `<h2>Your administrator</h2><div class="row">${avatar(MY_ADMIN)}<div><b>${esc(MY_ADMIN.name)}</b><div class="small muted">${esc(MY_ADMIN.email)}</div></div></div>
+       <p class="small muted">You can request to move to another administrator below. You'll keep your current access until it's approved.</p>`
+    : `<h2>No administrator yet</h2><p class="muted">Request to join an administrator's team. You'll get access to workspaces and projects once approved.</p>`;
+
+  const loadMine = async () => {
+    const el = $('#mine'); loading(el);
+    try {
+      const list = await api('/requests/mine');
+      el.innerHTML = list.length ? list.map((q) => `<div class="list-item"><div><b>${esc(q.admin.name)}</b><div class="small muted">Sent ${fmtTime(q.createdAt)}${q.note ? ' · ' + esc(q.note) : ''}</div></div>${badge(q.status)}</div>`).join('') : empty('You have not sent any requests');
+    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+  };
+  const loadAdmins = async (q = '') => {
+    const el = $('#admins'); loading(el);
+    try {
+      const list = await api('/admins?q=' + encodeURIComponent(q));
+      el.innerHTML = list.length ? list.map((a) => `<div class="list-item"><div class="row">${avatar(a)}<b>${esc(a.name)}</b></div>
+        ${MY_ADMIN && MY_ADMIN.id === a.id ? '<span class="badge b-approved">Current</span>' : `<button class="btn sm" data-id="${a.id}" data-name="${esc(a.name)}">Request to join</button>`}</div>`).join('') : empty('No administrators found');
+      el.querySelectorAll('[data-id]').forEach((b) => b.onclick = () => openModal('Join ' + b.dataset.name + "'s team",
+        '<label><span>Message (optional)</span><textarea name="message" maxlength="500" placeholder="Introduce yourself"></textarea></label>',
+        async (d) => { await api('/requests', { body: { adminId: b.dataset.id, message: d.message } }); toast('Request sent'); loadMine(); }, 'Send request'));
+    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+  };
+  let t; $('#search').oninput = (e) => { clearTimeout(t); t = setTimeout(() => loadAdmins(e.target.value), 300); };
+  loadAdmins(); loadMine();
+})();
+</script>
+</body>
+</html>

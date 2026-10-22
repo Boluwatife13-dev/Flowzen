@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify email · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth">
+<div class="card" style="text-align:center">
+  <div class="logo"><span>F</span>Flowzen</div>
+  <div id="out" class="loading">Verifying your email…</div>
+  <p><a class="btn" href="index.html">Go to login</a></p>
+</div>
+<script src="js/app.js"></script>
+<script>
+  (async () => {
+    const out = $('#out');
+    out.classList.remove('loading');
+    try { out.className = 'info'; out.textContent = (await api('/auth/verify', { body: { token: qs('token') || '' } })).message; }
+    catch (e) { out.className = 'error-box'; out.textContent = e.message; }
+  })();
+</script>
+</body>
+</html>

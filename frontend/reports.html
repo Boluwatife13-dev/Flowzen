@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <div class="page-head"><div><h1>Reports</h1><div class="muted">Progress, workload and deadlines across everything you can access.</div></div></div>
+  <div class="card"><div class="filters">
+    <label style="margin:0"><span class="small">Tasks created from</span><input type="date" id="from"></label>
+    <label style="margin:0"><span class="small">to</span><input type="date" id="to"></label>
+    <label style="margin:0"><span class="small">Project</span><select id="projectId"><option value="">All projects</option></select></label>
+    <label style="margin:0"><span class="small">&nbsp;</span><button class="btn light" id="reset" type="button">Reset filters</button></label>
+  </div></div>
+  <div id="body"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  if (!await layout('reports')) return;
+  try { $('#projectId').innerHTML += (await api('/projects?limit=500')).items.map((x) => `<option value="${x.project.id}">${esc(x.project.name)}</option>`).join(''); } catch (e) { fail(e); }
+  const bars = (obj, total) => Object.entries(obj).map(([k, v]) => `<div class="list-item"><span style="width:110px">${badge(k)}</span>
+    <div class="progress" style="flex:1"><div style="width:${total ? v * 100 / total : 0}%;background:var(--brand)"></div></div><b style="width:30px;text-align:right">${v}</b></div>`).join('');
+  const load = async () => {
+    const el = $('#body'); loading(el);
+    const p = new URLSearchParams({ from: $('#from').value, to: $('#to').value, projectId: $('#projectId').value });
+    try {
+      const r = await api('/reports?' + p), s = r.summary || {};
+      const stat = (t, v) => `<div class="stat"><span class="muted">${t}</span><b>${v ?? 0}</b></div>`;
+      el.innerHTML = `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:18px">
+          ${stat('Total tasks', r.total)}${stat('Completed', r.completed)}${stat('Incomplete', r.incomplete)}${stat('Pending', r.byStatus.pending)}
+          ${stat('In progress', r.byStatus.in_progress)}${stat('Overdue', r.overdue)}</div>
+        ${isAdmin() ? `<div class="card"><h2>Administrative summary</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+          ${ME.role === 'sysadmin' ? stat('Users', s.users) + stat('Active users', s.activeUsers) + stat('Admins', s.admins) + stat('Managers', s.managers) + stat('Members', s.members)
+            : stat('Team members', s.teamSize)}${stat('Pending requests', s.pendingRequests)}${stat('Workspaces', s.workspaces)}${stat('Projects', s.projects)}</div></div>` : ''}
+        <div class="grid g2"><div class="card"><h2>By status</h2>${bars(r.byStatus, r.total)}</div><div class="card"><h2>By priority</h2>${bars(r.byPriority, r.total)}</div></div>
+        <div class="card"><h2>Project completion</h2>${r.projects.length ? `<div class="table-wrap"><table><thead><tr><th>Project</th><th>Workspace</th><th>Status</th><th>Deadline</th><th>Done</th><th>Overdue</th><th style="width:170px">Progress</th></tr></thead><tbody>
+          ${r.projects.map((x) => `<tr><td><a href="project.html?id=${x.id}">${esc(x.name)}</a></td><td>${esc(x.workspace)}</td><td>${badge(x.status)}</td><td>${fmtDate(x.deadline)}</td>
+            <td>${x.completed}/${x.total}</td><td>${x.overdue}</td><td>${progressBar(x.percent)}</td></tr>`).join('')}</tbody></table></div>` : empty('No projects')}</div>
+        <div class="grid g2">
+          <div class="card"><h2>Team workload</h2>${r.workload.length ? `<div class="table-wrap"><table><thead><tr><th>Person</th><th>Open</th><th>Done</th><th>Overdue</th></tr></thead><tbody>
+            ${r.workload.map((w) => `<tr><td><div class="row">${avatar(w.user)}${esc(w.user.name)}</div></td><td>${w.open}</td><td>${w.completed}</td><td>${w.overdue}</td></tr>`).join('')}</tbody></table></div>` : empty('No assigned tasks')}</div>
+          <div class="card"><h2>Upcoming deadlines</h2>${r.upcoming.length ? r.upcoming.map((t) => `<div class="list-item"><div><a href="task.html?id=${t.id}">${esc(t.title)}</a><div class="small muted">${esc(t.project)}</div></div>
+            <div class="row">${badge(t.priority)}<span class="small">${fmtDate(t.dueDate)}</span></div></div>`).join('') : empty('Nothing due in the next 7 days')}</div>
+        </div>
+        <div class="card"><h2>Recent activity</h2>${activityList(r.activity)}</div>`;
+    } catch (e) { el.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+  };
+  ['#from', '#to', '#projectId'].forEach((s) => $(s).onchange = load);
+  $('#reset').onclick = () => { $('#from').value = $('#to').value = $('#projectId').value = ''; load(); };
+  load();
+})();
+</script>
+</body>
+</html>

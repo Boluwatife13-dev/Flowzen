@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Admin · Flowzen</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="page">
+  <div class="page-head"><div><h1>System Administration</h1><div class="muted">Users, platform workspaces and projects, activity and system events.</div></div>
+    <a class="btn light" href="reports.html">Reports</a></div>
+  <div class="tabs" id="tabs"><button data-t="users" class="active">Users</button><button data-t="workspaces">Workspaces</button><button data-t="projects">Projects</button>
+    <button data-t="activity">Platform activity</button><button data-t="logs">System events</button></div>
+  <div class="card"><div id="tools"></div><div class="table-wrap" id="list"></div><div id="pager"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+(async () => {
+  if (!await layout('admin', { roles: ['sysadmin'] })) return;
+  let tab = 'users', page = 1;
+  const debounce = (fn) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, 300); }; };
+  const err = (e) => { $('#list').innerHTML = `<div class="error-box">${esc(e.message)}</div>`; };
+
+  const tabs = {
+    users: {
+      tools: `<div class="filters"><input id="q" placeholder="Search name or email…" aria-label="Search users"><select id="role" aria-label="Role"><option value="">All roles</option>${options(['sysadmin', 'admin', 'manager', 'member'])}</select>
+        <select id="status" aria-label="Status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>`,
+      async load() {
+        const p = new URLSearchParams({ page, q: $('#q').value, role: $('#role').value, status: $('#status').value });
+        const res = await api('/admin/users?' + p);
+        $('#list').innerHTML = res.items.length ? `<table><thead><tr><th>User</th><th>Role</th><th>Verified</th><th>Status</th><th>Joined</th><th></th></tr></thead><tbody>
+          ${res.items.map((u) => `<tr><td><div class="row">${avatar(u)}<div><a href="#" data-view="${u.id}">${esc(u.name)}</a><div class="small muted">${esc(u.email)}</div></div></div></td>
+            <td>${u.id === ME.id || u.role === 'sysadmin' ? badge(u.role) : `<select data-role="${u.id}" aria-label="Role">${options(['member', 'manager', 'admin'], u.role)}</select>`}</td>
+            <td>${u.verified ? '✔' : '<span class="muted">No</span>'}</td><td>${badge(u.active ? 'active' : 'inactive')}</td><td class="small">${fmtDate(u.createdAt)}</td>
+            <td class="right">${u.id === ME.id ? '' : `<button class="btn light sm" data-act="${u.id}" data-v="${!u.active}">${u.active ? 'Deactivate' : 'Activate'}</button>`}</td></tr>`).join('')}
+          </tbody></table>` : empty('No users found');
+        pager($('#pager'), res, (n) => { page = n; render(); });
+        const upd = async (id, body) => { try { await api('/admin/users/' + id, { method: 'PUT', body }); toast('User updated'); } catch (e) { fail(e); } render(); };
+        $('#list').querySelectorAll('[data-role]').forEach((s) => s.onchange = async () => {
+          if (s.value === 'admin' && !await confirmBox('Make this user an administrator? They will leave their current team and lead their own.', 'Make admin')) return render();
+          upd(s.dataset.role, { role: s.value });
+        });
+        $('#list').querySelectorAll('[data-act]').forEach((b) => b.onclick = () => upd(b.dataset.act, { active: b.dataset.v === 'true' }));
+        $('#list').querySelectorAll('[data-view]').forEach((a) => a.onclick = async (e) => {
+          e.preventDefault();
+          try {
+            const d = await api('/admin/users/' + a.dataset.view), u = d.user;
+            openModal(u.name, `<div class="row" style="margin-bottom:12px">${avatar(u, 'lg')}<div>${esc(u.email)}<br>${badge(u.role)} ${badge(u.active ? 'active' : 'inactive')}</div></div>
+              <p><b>Title:</b> ${esc(u.title) || '—'}<br><b>Phone:</b> ${esc(u.phone) || '—'}<br><b>Administrator:</b> ${esc(d.admin ? d.admin.name : '—')}<br>
+              <b>Assigned tasks:</b> ${d.assignedTasks}<br><b>Team size:</b> ${d.teamSize}<br><b>Joined:</b> ${fmtTime(u.createdAt)}</p>
+              <h3>Recent actions</h3>${activityList(d.activity)}`);
+          } catch (ex) { fail(ex); }
+        });
+      },
+      bind() { $('#q').oninput = debounce(() => { page = 1; render(); }); $('#role').onchange = $('#status').onchange = () => { page = 1; render(); }; },
+    },
+    workspaces: {
+      tools: '<div class="filters"><input id="q" placeholder="Search workspaces…" aria-label="Search workspaces"></div>',
+      async load() {
+        const res = await api(`/workspaces?page=${page}&q=${encodeURIComponent($('#q').value)}`);
+        $('#list').innerHTML = res.items.length ? `<table><thead><tr><th>Workspace</th><th>Projects</th><th>Members</th><th>Created</th><th></th></tr></thead><tbody>
+          ${res.items.map((x) => `<tr><td><a href="workspace.html?id=${x.workspace.id}">${esc(x.workspace.name)}</a></td><td>${x.projects}</td><td>${x.members}</td><td class="small">${fmtDate(x.workspace.createdAt)}</td>
+            <td class="right"><button class="btn danger sm" data-del="${x.workspace.id}" data-name="${esc(x.workspace.name)}">Delete</button></td></tr>`).join('')}</tbody></table>` : empty('No workspaces');
+        pager($('#pager'), res, (n) => { page = n; render(); });
+        $('#list').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+          if (!await confirmBox(`Delete workspace "${b.dataset.name}" and everything in it?`)) return;
+          try { await api('/workspaces/' + b.dataset.del, { method: 'DELETE' }); toast('Workspace deleted'); } catch (e) { fail(e); } render();
+        });
+      },
+      bind() { $('#q').oninput = debounce(() => { page = 1; render(); }); },
+    },
+    projects: {
+      tools: '<div class="filters"><input id="q" placeholder="Search projects…" aria-label="Search projects"></div>',
+      async load() {
+        const res = await api(`/projects?page=${page}&q=${encodeURIComponent($('#q').value)}`);
+        $('#list').innerHTML = res.items.length ? `<table><thead><tr><th>Project</th><th>Workspace</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>
+          ${res.items.map((x) => `<tr><td><a href="project.html?id=${x.project.id}">${esc(x.project.name)}</a></td><td>${esc(x.workspace)}</td><td>${badge(x.project.status)}</td>
+            <td style="width:170px">${progressBar(x.progress.percent)}</td><td class="right"><button class="btn danger sm" data-del="${x.project.id}" data-name="${esc(x.project.name)}">Delete</button></td></tr>`).join('')}</tbody></table>` : empty('No projects');
+        pager($('#pager'), res, (n) => { page = n; render(); });
+        $('#list').querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+          if (!await confirmBox(`Delete project "${b.dataset.name}" and all its tasks?`)) return;
+          try { await api('/projects/' + b.dataset.del, { method: 'DELETE' }); toast('Project deleted'); } catch (e) { fail(e); } render();
+        });
+      },
+      bind() { $('#q').oninput = debounce(() => { page = 1; render(); }); },
+    },
+    activity: {
+      tools: '',
+      async load() {
+        const res = await api(`/activity?page=${page}&limit=25`);
+        $('#list').innerHTML = activityList(res.items);
+        pager($('#pager'), res, (n) => { page = n; render(); });
+      },
+      bind() {},
+    },
+    logs: {
+      tools: `<div class="filters"><select id="level" aria-label="Level"><option value="">All levels</option><option value="error">Errors</option><option value="info">Info</option></select></div>`,
+      async load() {
+        const res = await api(`/admin/logs?page=${page}&limit=25&level=${$('#level').value}`);
+        $('#list').innerHTML = res.items.length ? `<table><thead><tr><th>Level</th><th>Event</th><th>Time</th></tr></thead><tbody>
+          ${res.items.map((l) => `<tr><td>${badge(l.level, l.level === 'error' ? 'blocked' : 'low')}</td><td>${esc(l.message)}</td><td class="small" style="white-space:nowrap">${fmtTime(l.createdAt)}</td></tr>`).join('')}</tbody></table>` : empty('No system events recorded');
+        pager($('#pager'), res, (n) => { page = n; render(); });
+      },
+      bind() { $('#level').onchange = () => { page = 1; render(); }; },
+    },
+  };
+
+  async function render() { loading($('#list')); try { await tabs[tab].load(); } catch (e) { err(e); } }
+  function open(t) { tab = t; page = 1; $('#tools').innerHTML = tabs[t].tools; $('#pager').innerHTML = ''; tabs[t].bind(); render(); }
+  $('#tabs').onclick = (e) => {
+    if (!e.target.dataset.t) return;
+    $('#tabs .active').classList.remove('active'); e.target.classList.add('active'); open(e.target.dataset.t);
+  };
+  open('users');
+})();
+</script>
+</body>
+</html>
