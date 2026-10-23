@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://flowzen-backend-abcd.onrender.com';https://flowzen-backend-opnt.onrender.com
+const BACKEND_URL = 'https://flowzen-backend-opnt.onrender.com';
 const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname)
   ? 'http://localhost:8080'
   : BACKEND_URL;
