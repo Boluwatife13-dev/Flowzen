@@ -1,13 +1,12 @@
-
-const BACKEND_URL = 'https://YOUR-RENDER-SERVICE.onrender.com'; // your Render link, no / at the end
+const BACKEND_URL = 'https://flowzen-backend-abcd.onrender.com';https://flowzen-backend-opnt.onrender.com
 const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname)
   ? 'http://localhost:8080'
   : BACKEND_URL;
 
-let ME = null;       // the logged-in user
-let MY_ADMIN = null; // the administrator they work under
+let ME = null;       
+let MY_ADMIN = null; 
 
-// ---------- API ----------
+
 async function api(path, method = 'GET', body = null) {
   const options = { method, headers: {} };
   const token = localStorage.getItem('token');
@@ -61,7 +60,7 @@ function avatar(user) {
   const initials = (user.name || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return `<span class="avatar">${esc(initials)}</span>`;
 }
-// turns a list of users into a lookup: people[id] -> user
+
 function byId(users) {
   const map = {};
   (users || []).forEach((u) => map[u.id] = u);
@@ -102,8 +101,7 @@ function toast(message, isError = false) {
 }
 const toastError = (error) => toast(error.message, true);
 
-// ---------- forms and dialogs ----------
-// Reads a form into an object. Multi-selects become arrays, checkboxes become true/false.
+
 function formData(form) {
   const data = {};
   for (const field of form.elements) {
@@ -115,7 +113,7 @@ function formData(form) {
   return data;
 }
 
-// handleForm runs save(data) on submit, shows errors inside the form and closes its dialog on success.
+
 function handleForm(form, save) {
   form.onsubmit = async (event) => {
     event.preventDefault();
@@ -142,8 +140,7 @@ function openDialog(id) {
 }
 function closeDialog(button) { button.closest('dialog').close(); }
 
-// ---------- page layout ----------
-// Checks login, then draws the sidebar and top bar around the page content.
+
 async function startPage(activePage, { needsApproval = true, onlyFor = null } = {}) {
   if (!localStorage.getItem('token')) { location.href = 'index.html'; return false; }
   try {
@@ -207,9 +204,7 @@ async function logout() {
   location.href = 'index.html';
 }
 
-// ---------- task form (used on the project, tasks and task pages) ----------
-// people = who can be assigned, projectTasks = other tasks it can depend on,
-// canAssign = only managers/creators can change assignees and dependencies.
+
 function taskFormHTML(task, people, projectTasks, canAssign) {
   task = task || {};
   const statuses = ['pending', 'in_progress', 'review', 'blocked', 'completed'];
@@ -231,7 +226,7 @@ function taskFormHTML(task, people, projectTasks, canAssign) {
     <div class="row end"><button type="button" class="btn light" onclick="closeDialog(this)">Cancel</button><button class="btn" type="submit">Save task</button></div>`;
 }
 
-// converts the "labels" text box into a list before sending
+
 function taskData(form) {
   form.labels = form.labels ? form.labels.split(',').map((l) => l.trim()).filter(Boolean) : [];
   return form;
