@@ -3,9 +3,8 @@ const API_URL = ['localhost', '127.0.0.1', ''].includes(location.hostname)
   ? 'http://localhost:8080'
   : BACKEND_URL;
 
-let ME = null;       
-let MY_ADMIN = null; 
-
+let ME = null;
+let MY_ADMIN = null;
 
 async function api(path, method = 'GET', body = null) {
   const options = { method, headers: {} };
@@ -101,7 +100,6 @@ function toast(message, isError = false) {
 }
 const toastError = (error) => toast(error.message, true);
 
-
 function formData(form) {
   const data = {};
   for (const field of form.elements) {
@@ -112,7 +110,6 @@ function formData(form) {
   }
   return data;
 }
-
 
 function handleForm(form, save) {
   form.onsubmit = async (event) => {
@@ -140,7 +137,6 @@ function openDialog(id) {
 }
 function closeDialog(button) { button.closest('dialog').close(); }
 
-
 async function startPage(activePage, { needsApproval = true, onlyFor = null } = {}) {
   if (!localStorage.getItem('token')) { location.href = 'index.html'; return false; }
   try {
@@ -156,12 +152,12 @@ async function startPage(activePage, { needsApproval = true, onlyFor = null } = 
   if (onlyFor && !onlyFor.includes(ME.role)) { location.href = 'dashboard.html'; return false; }
 
   const link = (page, text) => `<a href="${page}.html" class="${activePage === page ? 'active' : ''}">${text}</a>`;
-  let nav = link('dashboard', '🏠 Dashboard');
-  if (approved) nav += '<div class="sect">Work</div>' + link('workspaces', '🗂️ Workspaces') + link('projects', '📁 Projects') + link('tasks', '✅ Tasks') + link('reports', '📊 Reports');
-  nav += '<div class="sect">Team</div>' + link('requests', ['admin', 'sysadmin'].includes(ME.role) ? '📨 Access Requests' : '📨 My Administrator');
-  if (ME.role === 'admin') nav += link('team', '👥 My Team');
-  if (ME.role === 'sysadmin') nav += link('admin', '🛡️ System Admin');
-  nav += '<div class="sect">Account</div>' + link('notifications', '🔔 Notifications') + link('profile', '👤 Profile');
+  let nav = link('dashboard', 'Dashboard');
+  if (approved) nav += '<div class="sect">Work</div>' + link('workspaces', 'Workspaces') + link('projects', 'Projects') + link('tasks', 'Tasks') + link('reports', 'Reports');
+  nav += '<div class="sect">Team</div>' + link('requests', ['admin', 'sysadmin'].includes(ME.role) ? 'Access Requests' : 'My Administrator');
+  if (ME.role === 'admin') nav += link('team', 'My Team');
+  if (ME.role === 'sysadmin') nav += link('admin', 'System Admin');
+  nav += '<div class="sect">Account</div>' + link('notifications', 'Notifications') + link('profile', 'Profile');
 
   const page = $('#page');
   const shell = document.createElement('div');
@@ -173,7 +169,7 @@ async function startPage(activePage, { needsApproval = true, onlyFor = null } = 
         <button class="menu-btn" onclick="$('.sidebar').classList.toggle('open')" aria-label="Menu">☰</button>
         <div class="muted hide-sm">${MY_ADMIN ? 'Team: ' + esc(MY_ADMIN.name) : words(ME.role)}</div>
         <div class="actions">
-          <a class="bell" href="notifications.html" aria-label="Notifications">🔔<span class="count hidden" id="unread"></span></a>
+          <a class="bell" href="notifications.html" aria-label="Notifications"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="count hidden" id="unread"></span></a>
           <div class="profile-menu">
             <button onclick="event.stopPropagation(); $('.dropdown').classList.toggle('open')">${avatar(ME)}<span class="hide-sm">${esc(ME.name)}</span> ▾</button>
             <div class="dropdown"><a href="profile.html">My profile</a><button onclick="logout()">Log out</button></div>
@@ -204,7 +200,6 @@ async function logout() {
   location.href = 'index.html';
 }
 
-
 function taskFormHTML(task, people, projectTasks, canAssign) {
   task = task || {};
   const statuses = ['pending', 'in_progress', 'review', 'blocked', 'completed'];
@@ -225,7 +220,6 @@ function taskFormHTML(task, people, projectTasks, canAssign) {
     <label><span>Labels (comma separated)</span><input name="labels" value="${esc((task.labels || []).join(', '))}"></label>
     <div class="row end"><button type="button" class="btn light" onclick="closeDialog(this)">Cancel</button><button class="btn" type="submit">Save task</button></div>`;
 }
-
 
 function taskData(form) {
   form.labels = form.labels ? form.labels.split(',').map((l) => l.trim()).filter(Boolean) : [];
